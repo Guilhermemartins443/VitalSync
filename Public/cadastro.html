@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Criar conta · VitalSync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styleCad.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <section class="brand">
+    <div class="mark"><span class="mark-dot"></span>VITALSYNC</div>
+
+    <div class="brand-body">
+      <h1>Leve o histórico do paciente com você.</h1>
+      <p>Ao criar sua conta institucional, sua equipe passa a enxergar o que já foi feito em qualquer unidade da rede — sem repetir pergunta, sem repetir exame.</p>
+
+      <div class="triage">
+        <div class="triage-label">Classificação de risco em tempo real</div>
+        <div class="triage-row">
+          <span class="t-emerg"></span>
+          <span class="t-urg"></span>
+          <span class="t-pouco"></span>
+          <span class="t-naourg"></span>
+        </div>
+        <div class="triage-legend">
+          <span>Emergência</span>
+          <span>Urgente</span>
+          <span>Pouco urgente</span>
+          <span>Não urgente</span>
+        </div>
+      </div>
+
+      <div class="quote">
+        <p>"Cadastrei minha equipe inteira em uma tarde. Hoje todo mundo vê a mesma ficha do paciente."</p>
+        <span>Coordenadora de enfermagem, UPA Vila Nova</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-side">
+    <div class="form-card">
+      <a href="login.html" class="back-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Voltar
+      </a>
+      <h2>Criar conta</h2>
+      <p class="sub">Cadastre o acesso da sua equipe à plataforma de triagem e cuidado contínuo.</p>
+
+      <form id="signupForm" novalidate>
+        <div class="field-row">
+          <div class="field">
+            <label for="firstName">Nome</label>
+            <div class="input-shell">
+              <input id="firstName" name="firstName" type="text" placeholder="Seu nome" autocomplete="given-name" required>
+            </div>
+          </div>
+          <div class="field">
+            <label for="lastName">Sobrenome</label>
+            <div class="input-shell">
+              <input id="lastName" name="lastName" type="text" placeholder="Seu sobrenome" autocomplete="family-name" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="email">E-mail institucional</label>
+          <div class="input-shell">
+            <input id="email" name="email" type="email" placeholder="nome@unidade.saude.gov.br" autocomplete="username" required>
+          </div>
+          <div class="err" id="emailErr">Informe um e-mail válido.</div>
+        </div>
+
+        <div class="field">
+          <label for="role">Função na unidade</label>
+          <div class="input-shell select-shell">
+            <select id="role" name="role" required>
+              <option value="" disabled selected>Selecione sua função</option>
+              <option value="medico">Médico(a)</option>
+              <option value="enfermeiro">Enfermeiro(a)</option>
+              <option value="tecnico">Técnico(a) de enfermagem</option>
+              <option value="administrativo">Administrativo(a)</option>
+              <option value="gestor">Gestor(a) de unidade</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="password">Senha</label>
+          <div class="input-shell">
+            <input id="password" name="password" type="password" placeholder="Crie uma senha" autocomplete="new-password" required>
+            <button type="button" class="toggle-pw" id="togglePw" aria-label="Mostrar senha">
+              <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="pw-strength" id="pwStrength"><span></span><span></span><span></span></div>
+          <div class="pw-hint">Use pelo menos 8 caracteres, com números e letras.</div>
+          <div class="err" id="pwErr">A senha precisa ter no mínimo 8 caracteres.</div>
+        </div>
+
+        <div class="field">
+          <label for="confirmPassword">Confirmar senha</label>
+          <div class="input-shell">
+            <input id="confirmPassword" name="confirmPassword" type="password" placeholder="Repita a senha" autocomplete="new-password" required>
+          </div>
+          <div class="err" id="confirmErr">As senhas não coincidem.</div>
+        </div>
+
+        <label class="terms">
+          <input type="checkbox" id="terms" required>
+          <span>Li e aceito os <a href="#">Termos de Uso</a> e a <a href="#">Política de Privacidade</a> do VitalSync.</span>
+        </label>
+
+        <button type="submit" class="btn-primary">Criar conta</button>
+
+        <div class="divider">ou</div>
+
+        <button type="button" class="btn-secondary">
+          <span class="gov-badge">gov</span>
+          Criar conta com gov.br
+        </button>
+      </form>
+
+      <p class="foot-note">Já tem uma conta? <a href="login.html">Entrar</a></p>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/cadastro.js"></script>
+</body>
+</html>
