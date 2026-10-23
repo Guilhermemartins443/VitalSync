@@ -23,6 +23,9 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
 
 const app = express();
 
+// Atrás do proxy do Render/Railway: faz req.ip ser o IP real (o limitador de requisições depende disso).
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
 // CORS: FRONTEND_ORIGIN aceita várias origens separadas por vírgula. Em desenvolvimento,
 // qualquer localhost/127.0.0.1 (qualquer porta) também é aceito, para não travar o front
 // aberto por Live Server, outra porta, etc. Sem FRONTEND_ORIGIN, libera tudo (como antes).
