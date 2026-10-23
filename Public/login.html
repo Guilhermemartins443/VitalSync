@@ -80,7 +80,9 @@
           <a href="#" class="forgot">Esqueci minha senha</a>
         </div>
 
-        <button type="submit" class="btn-primary">Entrar</button>
+        <div class="err" id="formErr" role="alert"></div>
+
+        <button type="submit" class="btn-primary" id="loginBtn">Entrar</button>
 
         <div class="divider">ou</div>
 
@@ -90,12 +92,15 @@
         </button>
       </form>
 
-      <p class="foot-note">Ainda não tem acesso? <a href="cadastro.html">Solicite à administração da sua unidade</a>.</p>
+      <p class="foot-note" id="demoNote" hidden></p>
+      <p class="foot-note">Ainda não tem login? <a href="solicitar.html">Criar login de profissional</a></p>
     </div>
   </section>
 
 </div>
 
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/login.js"></script>
 
 </body>

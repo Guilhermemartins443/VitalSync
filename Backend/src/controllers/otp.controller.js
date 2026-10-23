@@ -23,7 +23,10 @@ async function solicitar(req, res) {
     );
 
     // TODO: plugar um provedor real de SMS/WhatsApp aqui.
-    console.log(`[OTP] Código para paciente ${paciente_id} via ${canal}: ${codigo}`);
+    // só em desenvolvimento: em produção o código não pode ir parar em log
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[OTP] Código para paciente ${paciente_id} via ${canal}: ${codigo}`);
+    }
 
     res.status(201).json({ enviado: true, expira_em: expiraEm, validade_minutos: VALIDADE_MINUTOS });
   } catch (err) {

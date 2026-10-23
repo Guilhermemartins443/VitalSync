@@ -61,6 +61,30 @@ function sortFila(fila) {
   return [...fila].sort((a, b) => a.level - b.level || a.createdAt - b.createdAt);
 }
 
+function formatDateTime(ts) {
+  const d = new Date(ts);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm} ${hh}:${mi}`;
+}
+
+function currentProfissionalName() {
+  const prof = window.Auth && Auth.getProfissional();
+  return (prof && prof.nome) || 'Profissional';
+}
+
+function uidLocal() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 // junta cada entrada da fila com os dados do paciente correspondente
 function filaComPacientes() {
   return VitalSyncStore.getFila().map(f => ({
@@ -81,16 +105,53 @@ const tabDetalhesBadge = document.getElementById('tabDetalhesBadge');
 const detalhesEmpty = document.getElementById('detalhesEmpty');
 const detalhesContent = document.getElementById('detalhesContent');
 
+// ---------- ELEMENTOS: RECLASSIFICAÇÃO DE RISCO ----------
+const btnReclassToggle = document.getElementById('btnReclassToggle');
+const reclassPanel = document.getElementById('reclassPanel');
+const reclassSelect = document.getElementById('reclassSelect');
+const reclassMotivo = document.getElementById('reclassMotivo');
+const btnReclassSalvar = document.getElementById('btnReclassSalvar');
+const btnReclassCancelar = document.getElementById('btnReclassCancelar');
+const pdReclassHistory = document.getElementById('pdReclassHistory');
+const pdReclassList = document.getElementById('pdReclassList');
+
+// ---------- ELEMENTOS: PRONTUÁRIO RÁPIDO / EVOLUÇÃO ----------
+const pdEvolucoes = document.getElementById('pdEvolucoes');
+const evolucaoForm = document.getElementById('evolucaoForm');
+const evolucaoTexto = document.getElementById('evolucaoTexto');
+const evolucaoAutor = document.getElementById('evolucaoAutor');
+
+// ---------- ELEMENTOS: PRESCRIÇÃO DIGITAL ----------
+const pdReceitas = document.getElementById('pdReceitas');
+const receitaForm = document.getElementById('receitaForm');
+const medNome = document.getElementById('medNome');
+const medDosagem = document.getElementById('medDosagem');
+const medPosologia = document.getElementById('medPosologia');
+const medDuracao = document.getElementById('medDuracao');
+
+// ---------- ELEMENTOS: ORIENTAÇÕES PÓS-CONSULTA E ATESTADO ----------
+const pdOrientacoes = document.getElementById('pdOrientacoes');
+const orientacaoForm = document.getElementById('orientacaoForm');
+const orientacaoTexto = document.getElementById('orientacaoTexto');
+const orientacaoAutor = document.getElementById('orientacaoAutor');
+const atestadoCheck = document.getElementById('atestadoCheck');
+const atestadoDiasWrap = document.getElementById('atestadoDiasWrap');
+const atestadoDias = document.getElementById('atestadoDias');
+
+function buildReclassOptions() {
+  reclassSelect.innerHTML = PRIORITY.map(p => `<option value="${p.level}">${p.label}</option>`).join('');
+}
+buildReclassOptions();
+
 // ---------- TOPBAR: nome do profissional logado ----------
 (function loadProfissional() {
-  try {
-    const nome = localStorage.getItem('vitalsync_profissional_nome');
-    const unidade = localStorage.getItem('vitalsync_profissional_unidade');
-    if (nome) userName.textContent = `Olá, ${nome}`;
-    if (unidade) unitPill.textContent = unidade;
-  } catch (err) {
-    // localStorage indisponível — segue com os valores padrão do HTML
-  }
+  const prof = Auth.getProfissional();
+  if (!prof) return;
+  userName.textContent = `Olá, ${prof.nome}`;
+  if (prof.unidade_nome) unitPill.textContent = prof.unidade_nome;
+  // só administrador vê o atalho para gerenciar a equipe (cadastro de profissionais)
+  const linkEquipe = document.getElementById('linkEquipe');
+  if (linkEquipe && prof.cargo === 'admin') linkEquipe.hidden = false;
 })();
 
 // ---------- ABAS ----------
@@ -131,16 +192,16 @@ function renderQueue() {
     const st = statusLabel(f.status);
     const row = document.createElement('div');
     row.className = `painel-row${f.id === selectedId ? ' is-selected' : ''}`;
-    row.dataset.id = f.id;
+    row.dataset.id = String(f.id);
     row.setAttribute('role', 'button');
     row.setAttribute('tabindex', '0');
 
     row.innerHTML = `
-      <div class="p-ticket">${f.senha}</div>
-      <div class="p-name">${f.paciente.nome_completo || 'Paciente não identificado'}</div>
+      <div class="p-ticket">${escapeHtml(f.senha)}</div>
+      <div class="p-name">${escapeHtml(f.paciente.nome_completo || 'Paciente não identificado')}</div>
       <div class="p-priority"><span class="dot ${meta.dot}"></span>${meta.label}</div>
       <div class="p-wait">${formatWait(waitSeconds(f))}</div>
-      <div class="p-status ${st.cls}">${st.text}</div>
+      <div class="p-status ${escapeHtml(st.cls)}">${escapeHtml(st.text)}</div>
       <div class="p-action">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
@@ -218,7 +279,254 @@ function renderDetails() {
   document.getElementById('pdGuiche').textContent = f.guiche || '—';
 
   renderActions(f);
+  renderReclass(f);
+  renderEvolucoes(f);
+  renderReceitas(f);
+  renderOrientacoes(f);
 }
+
+// ---------- RECLASSIFICAÇÃO MANUAL DE RISCO ----------
+function renderReclass(f) {
+  reclassPanel.hidden = true;
+  reclassSelect.value = String(f.level);
+  reclassMotivo.value = '';
+
+  const historico = f.reclassificacoes || [];
+  if (!historico.length) {
+    pdReclassHistory.hidden = true;
+    return;
+  }
+  pdReclassHistory.hidden = false;
+  pdReclassList.innerHTML = [...historico].reverse().map(h => {
+    const de = PRIORITY[h.de] ? PRIORITY[h.de].label : '—';
+    const para = PRIORITY[h.para] ? PRIORITY[h.para].label : '—';
+    return `
+      <div class="reclass-history-item">
+        De <strong>${de}</strong> para <strong>${para}</strong> · ${formatDateTime(h.em)} · ${escapeHtml(h.por || 'Profissional')}
+        ${h.motivo ? `<span class="rh-motivo">${escapeHtml(h.motivo)}</span>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+btnReclassToggle.addEventListener('click', () => {
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+  reclassSelect.value = String(f.level);
+  reclassMotivo.value = '';
+  reclassPanel.hidden = !reclassPanel.hidden;
+});
+
+btnReclassCancelar.addEventListener('click', () => {
+  reclassPanel.hidden = true;
+  reclassMotivo.value = '';
+});
+
+btnReclassSalvar.addEventListener('click', () => {
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+
+  const novoLevel = Number(reclassSelect.value);
+  const motivo = reclassMotivo.value.trim();
+
+  if (novoLevel === f.level) {
+    reclassPanel.hidden = true;
+    return;
+  }
+
+  const historico = (f.reclassificacoes || []).concat([{
+    de: f.level,
+    para: novoLevel,
+    motivo,
+    em: Date.now(),
+    por: currentProfissionalName(),
+  }]);
+
+  VitalSyncStore.updateFilaEntry(f.id, { level: novoLevel, reclassificacoes: historico });
+});
+
+// ---------- PRONTUÁRIO RÁPIDO · EVOLUÇÃO MÉDICA ----------
+function renderEvolucoes(f) {
+  evolucaoAutor.textContent = currentProfissionalName();
+
+  const lista = f.evolucoes || [];
+  if (!lista.length) {
+    pdEvolucoes.innerHTML = '<p class="evolucao-empty">Nenhuma evolução registrada ainda. Use o campo abaixo para adicionar a primeira anotação deste atendimento.</p>';
+    return;
+  }
+
+  pdEvolucoes.innerHTML = [...lista].reverse().map(ev => `
+    <div class="evolucao-item">
+      <div class="evolucao-item-head">
+        <span>${escapeHtml(ev.autor)}</span>
+        <time>${formatDateTime(ev.criadoEm)}</time>
+      </div>
+      <p>${escapeHtml(ev.texto)}</p>
+    </div>
+  `).join('');
+}
+
+evolucaoForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+
+  const texto = evolucaoTexto.value.trim();
+  if (!texto) return;
+
+  const nova = {
+    id: uidLocal(),
+    autor: currentProfissionalName(),
+    texto,
+    criadoEm: Date.now(),
+  };
+  const lista = (f.evolucoes || []).concat([nova]);
+
+  VitalSyncStore.updateFilaEntry(f.id, { evolucoes: lista });
+  evolucaoTexto.value = '';
+});
+
+// ---------- PRESCRIÇÃO DIGITAL DE MEDICAMENTOS ----------
+function onlyDigits(str) {
+  return String(str || '').replace(/\D/g, '');
+}
+
+function lembreteMensagem(paciente, med) {
+  return `Olá, ${paciente.nome_completo || ''}! Lembrete do VitalSync: está na hora de tomar ${med.nome} — ${med.dosagem}, ${med.posologia}. Tratamento por ${med.duracao}.`;
+}
+
+function renderReceitas(f) {
+  const paciente = f.paciente;
+  const receitas = f.receitas || [];
+
+  if (!receitas.length) {
+    pdReceitas.innerHTML = '<p class="evolucao-empty">Nenhum medicamento prescrito neste atendimento ainda. Use o formulário abaixo para adicionar.</p>';
+    return;
+  }
+
+  pdReceitas.innerHTML = [...receitas].reverse().map(r => `
+    <div class="receita-item">
+      <div class="evolucao-item-head"><span>Prescrito por ${escapeHtml(r.por)}</span><time>${formatDateTime(r.criadoEm)}</time></div>
+      ${r.medicamentos.map(med => `
+        <div class="med-row" data-receita="${escapeHtml(r.id)}" data-med="${escapeHtml(med.id)}">
+          <div class="med-info">
+            <strong>${escapeHtml(med.nome)}</strong>
+            <span>${escapeHtml(med.dosagem)} · ${escapeHtml(med.posologia)} · ${escapeHtml(med.duracao)}</span>
+            ${med.comprado ? '<span class="badge-confirmado">Compra/adesão confirmada pelo paciente</span>' : '<span class="badge-pendente">Aguardando confirmação do paciente</span>'}
+          </div>
+          <div class="med-actions">
+            <button type="button" class="btn-mini btn-lembrete-zap" data-canal="whatsapp">Lembrete WhatsApp</button>
+            <button type="button" class="btn-mini btn-lembrete-sms" data-canal="sms">Lembrete SMS</button>
+          </div>
+          ${(med.lembretes || []).length ? `<div class="lembrete-log">Último lembrete: ${escapeHtml(String(med.lembretes[med.lembretes.length - 1].canal).toUpperCase())} em ${formatDateTime(med.lembretes[med.lembretes.length - 1].enviadoEm)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  pdReceitas.querySelectorAll('.med-row').forEach(row => {
+    row.querySelectorAll('.btn-mini[data-canal]').forEach(btn => {
+      btn.addEventListener('click', () => enviarLembrete(row.dataset.receita, row.dataset.med, btn.dataset.canal));
+    });
+  });
+}
+
+function enviarLembrete(receitaId, medId, canal) {
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+  const paciente = VitalSyncStore.getPaciente(f.pacienteId);
+  const receitas = f.receitas || [];
+  const receita = receitas.find(r => r.id === receitaId);
+  if (!receita) return;
+  const med = receita.medicamentos.find(m => m.id === medId);
+  if (!med) return;
+
+  const telefoneDigits = onlyDigits(paciente && paciente.telefone);
+  const texto = encodeURIComponent(lembreteMensagem(paciente || {}, med));
+
+  if (canal === 'whatsapp') {
+    window.open(`https://wa.me/55${telefoneDigits}?text=${texto}`, '_blank');
+  } else {
+    window.open(`sms:+55${telefoneDigits}?body=${texto}`, '_blank');
+  }
+
+  med.lembretes = (med.lembretes || []).concat([{ id: uidLocal(), canal, enviadoEm: Date.now() }]);
+  VitalSyncStore.updateFilaEntry(f.id, { receitas });
+}
+
+receitaForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+
+  const nome = medNome.value.trim();
+  const dosagem = medDosagem.value.trim();
+  const posologia = medPosologia.value.trim();
+  const duracao = medDuracao.value.trim();
+  if (!nome || !dosagem || !posologia || !duracao) return;
+
+  const novoMed = { id: uidLocal(), nome, dosagem, posologia, duracao, comprado: false, lembretes: [] };
+  const receitas = f.receitas || [];
+  let atual = receitas[receitas.length - 1];
+
+  if (!atual || atual.por !== currentProfissionalName()) {
+    atual = { id: uidLocal(), criadoEm: Date.now(), por: currentProfissionalName(), medicamentos: [] };
+    receitas.push(atual);
+  }
+  atual.medicamentos.push(novoMed);
+
+  VitalSyncStore.updateFilaEntry(f.id, { receitas });
+  receitaForm.reset();
+});
+
+// ---------- ORIENTAÇÕES PÓS-CONSULTA E ATESTADO ----------
+function renderOrientacoes(f) {
+  orientacaoAutor.textContent = currentProfissionalName();
+  const lista = f.orientacoes || [];
+
+  if (!lista.length) {
+    pdOrientacoes.innerHTML = '<p class="evolucao-empty">Nenhuma orientação registrada ainda.</p>';
+    return;
+  }
+
+  pdOrientacoes.innerHTML = [...lista].reverse().map(o => `
+    <div class="orientacao-item">
+      <div class="evolucao-item-head">
+        <span>${escapeHtml(o.por)}${o.atestado ? ' · <span class="atestado-tag">Atestado emitido</span>' : ''}</span>
+        <time>${formatDateTime(o.criadoEm)}</time>
+      </div>
+      <p>${escapeHtml(o.texto)}</p>
+      ${o.atestado ? `<p class="orientacao-atestado-dias">Afastamento: ${Number(o.diasAfastamento) || 0} dia(s)</p>` : ''}
+    </div>
+  `).join('');
+}
+
+atestadoCheck.addEventListener('change', () => {
+  atestadoDiasWrap.hidden = !atestadoCheck.checked;
+});
+
+orientacaoForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const f = VitalSyncStore.getFilaEntry(selectedId);
+  if (!f) return;
+
+  const texto = orientacaoTexto.value.trim();
+  if (!texto) return;
+
+  const nova = {
+    id: uidLocal(),
+    por: currentProfissionalName(),
+    texto,
+    atestado: atestadoCheck.checked,
+    diasAfastamento: atestadoCheck.checked ? (Number(atestadoDias.value) || 1) : null,
+    criadoEm: Date.now(),
+  };
+  const lista = (f.orientacoes || []).concat([nova]);
+
+  VitalSyncStore.updateFilaEntry(f.id, { orientacoes: lista });
+  orientacaoForm.reset();
+  atestadoDiasWrap.hidden = true;
+});
 
 function renderActions(f) {
   const btnAvancar = document.getElementById('btnAvancar');

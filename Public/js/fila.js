@@ -28,6 +28,12 @@ const queueCount = document.getElementById('queueCount');
 const liveUpdated = document.getElementById('liveUpdated');
 const toast = document.getElementById('calledToast');
 const toastBody = document.getElementById('toastBody');
+const receitasCard = document.getElementById('receitasCard');
+const receitasContent = document.getElementById('receitasContent');
+const historicoCard = document.getElementById('historicoCard');
+const historicoContent = document.getElementById('historicoContent');
+
+let historicoAbertoId = null;
 
 let secondsSinceUpdate = 0;
 let lastKnownStatus = null; // pra detectar a transição "virou minha vez"
@@ -80,6 +86,136 @@ function showToast(msg) {
   setTimeout(() => toast.classList.remove('show'), 6000);
 }
 
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function formatDateTime(ts) {
+  const d = new Date(ts);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm} ${hh}:${mi}`;
+}
+
+// ---------- MEUS ATENDIMENTOS (histórico completo do paciente logado) ----------
+function meusAtendimentos() {
+  const paciente = VitalSyncStore.getPacienteAtual();
+  if (!paciente) return [];
+  return VitalSyncStore.getFila()
+    .filter(f => f.pacienteId === paciente.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// ---------- RECEITAS, CONDUTAS E CONFIRMAÇÃO DE COMPRA/ADESÃO ----------
+function medicamentosHtml(atendimento) {
+  const meds = (atendimento.receitas || []).flatMap(r => r.medicamentos);
+  if (!meds.length) return '';
+  return meds.map(med => `
+    <div class="med-item" data-atendimento="${escapeHtml(atendimento.id)}" data-med="${escapeHtml(med.id)}">
+      <div class="med-info">
+        <strong>${escapeHtml(med.nome)}</strong>
+        <span>${escapeHtml(med.dosagem)} · ${escapeHtml(med.posologia)} · ${escapeHtml(med.duracao)}</span>
+      </div>
+      ${med.comprado
+        ? '<span class="badge-confirmado">Compra/adesão confirmada</span>'
+        : '<button type="button" class="btn-confirm-compra">Confirmar compra/adesão</button>'}
+    </div>
+  `).join('');
+}
+
+function orientacoesHtml(atendimento) {
+  const lista = atendimento.orientacoes || [];
+  if (!lista.length) return '';
+  return lista.map(o => `
+    <div class="orientacao-item">
+      <p>${escapeHtml(o.texto)}</p>
+      ${o.atestado ? `<span class="atestado-tag">Atestado médico · ${Number(o.diasAfastamento) || 0} dia(s) de afastamento</span>` : ''}
+    </div>
+  `).join('');
+}
+
+function condutaBlocoHtml(atendimento) {
+  const meds = medicamentosHtml(atendimento);
+  const orientacoes = orientacoesHtml(atendimento);
+  if (!meds && !orientacoes) return '<p class="evolucao-empty">Nenhuma receita ou orientação registrada neste atendimento.</p>';
+  return `
+    ${meds ? `<div class="med-list">${meds}</div>` : ''}
+    ${orientacoes ? `<div class="orientacao-list">${orientacoes}</div>` : ''}
+  `;
+}
+
+function renderReceitasCard() {
+  const atendimentos = meusAtendimentos();
+  const comConduta = atendimentos.filter(a => (a.receitas && a.receitas.length) || (a.orientacoes && a.orientacoes.length));
+
+  if (!comConduta.length) {
+    receitasCard.hidden = true;
+    return;
+  }
+  receitasCard.hidden = false;
+
+  const maisRecente = comConduta[0];
+  receitasContent.innerHTML = `
+    <p class="profile-subnote">Referente ao atendimento de ${formatDateTime(maisRecente.createdAt)} · senha ${escapeHtml(maisRecente.senha)}</p>
+    ${condutaBlocoHtml(maisRecente)}
+  `;
+
+  receitasContent.querySelectorAll('.btn-confirm-compra').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const row = e.target.closest('.med-item');
+      confirmarCompra(row.dataset.atendimento, row.dataset.med);
+    });
+  });
+}
+
+function confirmarCompra(atendimentoId, medId) {
+  const f = VitalSyncStore.getFilaEntry(atendimentoId);
+  if (!f) return;
+  const receitas = f.receitas || [];
+  receitas.forEach(r => {
+    const med = r.medicamentos.find(m => m.id === medId);
+    if (med) { med.comprado = true; med.compradoEm = Date.now(); }
+  });
+  VitalSyncStore.updateFilaEntry(f.id, { receitas });
+}
+
+// ---------- HISTÓRICO DE CONSULTAS ANTERIORES ----------
+function renderHistoricoCard() {
+  const atendimentos = meusAtendimentos();
+
+  if (atendimentos.length < 2) {
+    historicoCard.hidden = true;
+    return;
+  }
+  historicoCard.hidden = false;
+
+  historicoContent.innerHTML = atendimentos.map(a => {
+    const st = statusLabel(a.status);
+    const aberto = historicoAbertoId === a.id;
+    return `
+      <div class="historico-item">
+        <button type="button" class="historico-toggle" data-id="${escapeHtml(a.id)}">
+          <span>${formatDateTime(a.createdAt)} · Senha ${escapeHtml(a.senha)}</span>
+          <span class="q-status ${a.status === 'finalizado' ? 'status-aguardando' : escapeHtml(st.cls)}">${a.status === 'finalizado' ? 'Finalizado' : escapeHtml(st.text)}</span>
+        </button>
+        <p class="historico-desc">${escapeHtml(a.descricao || '—')}</p>
+        <div class="historico-conduta" ${aberto ? '' : 'hidden'}>${aberto ? condutaBlocoHtml(a) : ''}</div>
+      </div>
+    `;
+  }).join('');
+
+  historicoContent.querySelectorAll('.historico-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      historicoAbertoId = historicoAbertoId === btn.dataset.id ? null : btn.dataset.id;
+      renderHistoricoCard();
+    });
+  });
+}
+
 // ---------- RENDER ----------
 function render() {
   const filaTodos = VitalSyncStore.getFila();
@@ -104,10 +240,10 @@ function render() {
     row.className = `queue-row${f.id === minhaId ? ' is-you' : ''}`;
 
     row.innerHTML = `
-      <div class="q-ticket">${f.senha}${f.id === minhaId ? '<span class="you-tag">VOCÊ</span>' : ''}</div>
+      <div class="q-ticket">${escapeHtml(f.senha)}${f.id === minhaId ? '<span class="you-tag">VOCÊ</span>' : ''}</div>
       <div class="q-priority"><span class="dot ${meta.dot}"></span>${meta.label}</div>
       <div class="q-wait">${formatWait(waitSeconds(f))}</div>
-      <div class="q-status ${st.cls}">${st.text}</div>
+      <div class="q-status ${escapeHtml(st.cls)}">${escapeHtml(st.text)}</div>
     `;
     queueList.appendChild(row);
   });
@@ -163,6 +299,11 @@ function render() {
   lastKnownStatus = minha.status;
 }
 
+function renderPerfil() {
+  renderReceitasCard();
+  renderHistoricoCard();
+}
+
 // ---------- TEMPO REAL ----------
 function tick() {
   secondsSinceUpdate += 1;
@@ -172,9 +313,19 @@ function tick() {
 
 // re-renderiza assim que algo mudar no store (em outra aba ou nesta mesma)
 VitalSyncStore.onChange((key) => {
-  if (key === VitalSyncStore.KEYS.FILA) render();
+  if (key === VitalSyncStore.KEYS.FILA) { render(); renderPerfil(); }
 });
+
+// ---------- TOPBAR: nome e unidade do paciente logado ----------
+(function preencherTopbar() {
+  const p = VitalSyncStore.getPacienteAtual();
+  if (!p) return;
+  const primeiro = String(p.nome_completo || '').trim().split(/\s+/)[0];
+  if (primeiro) document.getElementById('userName').textContent = `Olá, ${primeiro}`;
+  if (p.unidade_referencia) document.getElementById('unitPill').textContent = p.unidade_referencia;
+})();
 
 // ---------- INIT ----------
 render();
+renderPerfil();
 setInterval(tick, 1000);

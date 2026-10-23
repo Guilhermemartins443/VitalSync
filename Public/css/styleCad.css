@@ -393,3 +393,22 @@
   }
   .terms a{color:var(--teal-700); font-weight:500; text-decoration:none;}
   .terms a:hover{text-decoration:underline;}
+
+/* mensagem de sucesso do cadastro de profissional */
+.ok{display:none;margin:0 0 14px;padding:10px 12px;border-radius:8px;font-size:13px;line-height:1.4;background:#e8f5ee;color:#1d6b42;border:1px solid #bfe3cf;}
+.ok.show{display:block;}
+
+/* solicitações de acesso pendentes (admin) */
+.pendentes{margin:0 0 26px;padding:16px;border:1px solid var(--sage-100,#dfe9e4);border-radius:12px;background:#fafcfb;}
+.pendentes[hidden]{display:none;}
+.pendentes h3{margin:0 0 4px;font-size:15px;}
+.pendentes ul{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;}
+.pend-item{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;}
+.pend-item strong{display:block;font-size:14px;}
+.pend-item span{color:var(--ink-soft);}
+.pend-acoes{display:flex;gap:8px;}
+.pend-btn{border:1px solid var(--teal-700);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;background:#fff;color:var(--teal-700);}
+.pend-btn.pend-ok{background:var(--teal-700);color:#fff;}
+.pend-btn:disabled{opacity:.5;cursor:default;}
+.foot-note a{color:var(--teal-700);font-weight:500;text-decoration:none;}
+.foot-note a:hover{text-decoration:underline;}

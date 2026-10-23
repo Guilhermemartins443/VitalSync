@@ -3,11 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Criar conta · VitalSync</title>
+<title>Cadastrar profissional · VitalSync</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styleCad.css">
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script>Auth.exigirLogin({ cargos: ['admin'] });</script>
 </head>
 <body>
 
@@ -45,12 +48,19 @@
 
   <section class="form-side">
     <div class="form-card">
-      <a href="login.html" class="back-link">
+      <a href="painel.html" class="back-link">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
         Voltar
       </a>
-      <h2>Criar conta</h2>
-      <p class="sub">Cadastre o acesso da sua equipe à plataforma de triagem e cuidado contínuo.</p>
+      <div id="pendentesBox" class="pendentes" hidden>
+        <h3>Solicitações de acesso</h3>
+        <p class="pw-hint">Profissionais que criaram login e aguardam sua aprovação.</p>
+        <ul id="pendentesLista"></ul>
+        <div class="err" id="pendErr" role="alert"></div>
+      </div>
+
+      <h2>Cadastrar profissional</h2>
+      <p class="sub" id="cadSub">Cadastre o acesso de um membro da sua equipe. O profissional entra na sua unidade.</p>
 
       <form id="signupForm" novalidate>
         <div class="field-row">
@@ -80,13 +90,12 @@
           <label for="role">Função na unidade</label>
           <div class="input-shell select-shell">
             <select id="role" name="role" required>
-              <option value="" disabled selected>Selecione sua função</option>
+              <option value="" disabled selected>Selecione a função</option>
               <option value="medico">Médico(a)</option>
               <option value="enfermeiro">Enfermeiro(a)</option>
               <option value="tecnico">Técnico(a) de enfermagem</option>
-              <option value="administrativo">Administrativo(a)</option>
-              <option value="gestor">Gestor(a) de unidade</option>
-              <option value="outro">Outro</option>
+              <option value="recepcao">Recepção / Administrativo(a)</option>
+              <option value="admin">Administrador(a) da unidade</option>
             </select>
           </div>
         </div>
@@ -112,27 +121,23 @@
           <div class="err" id="confirmErr">As senhas não coincidem.</div>
         </div>
 
-        <label class="terms">
-          <input type="checkbox" id="terms" required>
-          <span>Li e aceito os <a href="#">Termos de Uso</a> e a <a href="#">Política de Privacidade</a> do VitalSync.</span>
-        </label>
+        <div class="err" id="roleErr">Selecione a função do profissional.</div>
 
-        <button type="submit" class="btn-primary">Criar conta</button>
+        
 
-        <div class="divider">ou</div>
+        <button type="submit" class="btn-primary" id="cadBtn">Cadastrar profissional</button>
 
-        <button type="button" class="btn-secondary">
-          <span class="gov-badge">gov</span>
-          Criar conta com gov.br
-        </button>
+        <div class="err" id="formErr" role="alert"></div>
+        <div class="ok" id="formOk" role="status"></div>
       </form>
 
-      <p class="foot-note">Já tem uma conta? <a href="login.html">Entrar</a></p>
+      <p class="foot-note">Somente administradores da unidade cadastram novos profissionais.</p>
     </div>
   </section>
 
 </div>
 
 <script src="js/cadastro.js"></script>
+<script src="js/pendentes.js"></script>
 </body>
 </html>

@@ -7,6 +7,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const unidadesRoutes = require('./src/routes/unidades.routes');
 const pacientesRoutes = require('./src/routes/pacientes.routes');
@@ -15,10 +16,33 @@ const authRoutes = require('./src/routes/auth.routes');
 const sintomasRoutes = require('./src/routes/sintomas.routes');
 const filaRoutes = require('./src/routes/fila.routes');
 
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
+  console.error('JWT_SECRET ausente ou muito curto (mínimo 16 caracteres). Configure o .env.');
+  process.exit(1);
+}
+
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || '*' }));
-app.use(express.json());
+// CORS: FRONTEND_ORIGIN aceita várias origens separadas por vírgula. Em desenvolvimento,
+// qualquer localhost/127.0.0.1 (qualquer porta) também é aceito, para não travar o front
+// aberto por Live Server, outra porta, etc. Sem FRONTEND_ORIGIN, libera tudo (como antes).
+const origensPermitidas = (process.env.FRONTEND_ORIGIN || '').split(',').map((o) => o.trim()).filter(Boolean);
+const emDev = process.env.NODE_ENV !== 'production';
+app.use(cors({
+  origin(origin, cb) {
+    if (!origensPermitidas.length) return cb(null, true);
+    if (!origin || origensPermitidas.includes(origin)) return cb(null, true);
+    if (emDev && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+    return cb(null, false);
+  },
+}));
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'no-store'); // respostas com dado pessoal não devem ficar em cache
+  next();
+});
+app.use(express.json({ limit: '20kb' }));
 
 app.get('/api/saude', (req, res) => res.json({ status: 'ok' }));
 
@@ -28,6 +52,10 @@ app.use('/api/otp', otpRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/sintomas', sintomasRoutes);
 app.use('/api/fila', filaRoutes);
+
+// Serve o front (Public/) no mesmo endereço da API: abra http://localhost:3000/ e pronto,
+// sem Live Server e sem problema de CORS.
+app.use(express.static(path.join(__dirname, '..', 'Public'), { index: 'index.html' }));
 
 // 404 padrão para rotas de API não encontradas
 app.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));

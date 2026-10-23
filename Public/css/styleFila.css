@@ -428,6 +428,49 @@
   max-width:70ch;
 }
 
+/* ---------- MEU PERFIL: RECEITAS, ORIENTAÇÕES E HISTÓRICO ---------- */
+.profile-card{
+  background:var(--white);
+  border:1px solid var(--line-soft);
+  border-radius:6px;
+  padding:8px 22px 20px;
+  margin-bottom:18px;
+}
+.profile-subnote{font-size:12.5px; color:var(--ink-soft); margin:0 0 12px;}
+.evolucao-empty{font-size:13px; color:var(--ink-soft); padding:8px 0; margin:0;}
+
+.med-list{display:flex; flex-direction:column; gap:10px; margin-bottom:14px;}
+.med-item{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  border:1px solid var(--line-soft); border-left:3px solid var(--coral); border-radius:4px;
+  padding:12px 14px; background:var(--sage-100);
+}
+.med-info{display:flex; flex-direction:column; gap:2px;}
+.med-info strong{font-size:13.5px; color:var(--ink);}
+.med-info span{font-size:12.5px; color:var(--ink-soft);}
+.badge-confirmado{font-size:11px; font-weight:600; color:var(--teal-700); background:var(--white); border:1px solid var(--teal-500); padding:4px 10px; border-radius:20px;}
+.btn-confirm-compra{
+  background:var(--teal-700); color:var(--white); border:none; padding:9px 14px;
+  font-size:12.5px; font-weight:600; font-family:'IBM Plex Sans', sans-serif;
+  border-radius:4px; cursor:pointer; transition:background .15s ease;
+}
+.btn-confirm-compra:hover{background:var(--teal-900);}
+
+.orientacao-list{display:flex; flex-direction:column; gap:10px;}
+.orientacao-item{border:1px solid var(--line-soft); border-left:3px solid var(--amber); border-radius:4px; padding:12px 14px; background:var(--sage-100);}
+.orientacao-item p{margin:0 0 4px; font-size:13.5px; color:var(--ink); line-height:1.55; white-space:pre-wrap;}
+.atestado-tag{font-size:11.5px; font-weight:600; color:var(--coral-dark);}
+
+.historico-item{padding:14px 0; border-top:1px solid var(--line-soft);}
+.historico-item:first-child{border-top:0; padding-top:6px;}
+.historico-toggle{
+  width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:none; border:0; padding:0; cursor:pointer; font-family:'IBM Plex Sans', sans-serif;
+  font-size:13.5px; font-weight:500; color:var(--ink); text-align:left;
+}
+.historico-desc{font-size:12.5px; color:var(--ink-soft); margin:6px 0 0;}
+.historico-conduta{margin-top:12px; padding-top:12px; border-top:1px dashed var(--line-soft);}
+
 /* ---------- TOAST: chamado ---------- */
 .toast{
   position:fixed;
@@ -463,3 +506,17 @@
 }
 .toast strong{display:block; font-size:14px; margin-bottom:3px;}
 .toast p{margin:0; font-size:12.5px; color:#cddad5; line-height:1.4;}
+
+/* ---------- ABAS DA ÁREA DO PACIENTE ---------- */
+.paciente-tabs{
+  display:flex; gap:24px; padding:0 40px;
+  background:var(--white); border-bottom:1px solid var(--line-soft);
+}
+.ptab{
+  padding:14px 2px 12px; font-size:14px; font-weight:500; color:var(--ink-soft);
+  text-decoration:none; border-bottom:2px solid transparent;
+  transition:color .15s ease, border-color .15s ease;
+}
+.ptab:hover{color:var(--ink);}
+.ptab.active{color:var(--teal-900); font-weight:600; border-bottom-color:var(--coral);}
+@media (max-width:720px){ .paciente-tabs{padding:0 20px;} }

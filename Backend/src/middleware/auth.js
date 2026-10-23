@@ -23,4 +23,15 @@ function autenticarProfissional(req, res, next) {
   }
 }
 
-module.exports = { autenticarProfissional };
+// Uso: router.post('/x', autenticarProfissional, exigirCargo('admin'), handler)
+// Precisa vir DEPOIS de autenticarProfissional (depende de req.profissional).
+function exigirCargo(...cargos) {
+  return (req, res, next) => {
+    if (!req.profissional || !cargos.includes(req.profissional.cargo)) {
+      return res.status(403).json({ erro: 'Você não tem permissão para esta ação.' });
+    }
+    next();
+  };
+}
+
+module.exports = { autenticarProfissional, exigirCargo };

@@ -8,7 +8,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "db:criar": "node src/db/executarSql.js ../Database/criacaoTabela.sql",
-    "db:seed": "node src/db/executarSql.js ../Database/insertScript.sql"
+    "db:migrar": "node src/db/executarSql.js ../Database/migracaoStatusProfissionais.sql",
+    "db:seed": "node src/db/executarSql.js ../Database/insertScript.sql",
+    "admin:criar": "node src/db/criarAdmin.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

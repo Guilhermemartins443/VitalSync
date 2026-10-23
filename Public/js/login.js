@@ -18,9 +18,16 @@ const pwInput = document.getElementById('password');
   const pwShell = pwInput.closest('.input-shell');
   const pwErr = document.getElementById('pwErr');
 
-  form.addEventListener('submit', (e) => {
+  const formErr = document.getElementById('formErr');
+  const loginBtn = document.getElementById('loginBtn');
+
+  // já está logado (token válido)? vai direto ao painel; o guard do painel valida de verdade
+  if (Auth.getToken()) window.location.replace('painel.html');
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     let valid = true;
+    formErr.classList.remove('show');
 
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value);
     if (!emailOk) {
@@ -41,22 +48,26 @@ const pwInput = document.getElementById('password');
       pwErr.classList.remove('show');
     }
 
-    if (valid) {
-      // Placeholder: conectar ao endpoint de autenticação real do VitalSync.
-      // Por enquanto, simula o profissional autenticado a partir do e-mail
-      // para popular o painel (js/painel.js).
-      const nomeSimulado = email.value
-        .split('@')[0]
-        .replace(/[._]/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+    if (!valid) return;
 
-      try {
-        localStorage.setItem('vitalsync_profissional_nome', nomeSimulado);
-        localStorage.setItem('vitalsync_profissional_unidade', 'UBS Jardim das Flores');
-      } catch (err) {
-        // localStorage indisponível — o painel usa os valores padrão do HTML
-      }
-
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Entrando…';
+    try {
+      await Auth.login(email.value.trim(), pwInput.value, document.getElementById('remember').checked);
       window.location.href = 'painel.html';
+    } catch (err) {
+      formErr.textContent = err.message === 'Failed to fetch'
+        ? 'Não foi possível conectar ao servidor. Tente novamente.'
+        : err.message;
+      formErr.classList.add('show');
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Entrar';
     }
   });
+
+  // modo local: mostra a conta de demonstração que aprova os pedidos de acesso
+  if (Auth.modo === 'local') {
+    const nota = document.getElementById('demoNote');
+    nota.textContent = `Modo local · administrador de demonstração: ${Auth.adminDemo.email} / ${Auth.adminDemo.senha}`;
+    nota.hidden = false;
+  }

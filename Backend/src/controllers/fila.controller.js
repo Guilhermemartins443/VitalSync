@@ -7,21 +7,23 @@ const TRANSICAO_STATUS = {
   finalizado: [],
 };
 
-// GET /api/fila?unidade_id=1
-// Lista a fila ativa (não finalizada) de uma unidade, ordenada por
-// prioridade e depois por ordem de chegada — igual ao sortFila()
-// que o protótipo fazia no front-end.
+// ids numéricos simples (evita erro 500 do Postgres com "abc" e entradas estranhas)
+function ehId(valor) {
+  return /^\d{1,9}$/.test(String(valor));
+}
+
+// GET /api/fila?unidade_id=1   (PÚBLICA — usada por fila.html, visão do paciente)
+// Só senha, prioridade, status e tempos. NUNCA nome, CPF ou id do paciente: quem vê
+// a fila pública não pode saber quem é cada senha.
 async function listar(req, res) {
   try {
     const { unidade_id } = req.query;
-    if (!unidade_id) return res.status(400).json({ erro: 'Informe unidade_id.' });
+    if (!ehId(unidade_id)) return res.status(400).json({ erro: 'Informe unidade_id válido.' });
 
     const { rows } = await query(
       `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.created_at,
-              f.chamado_em, f.atendimento_iniciado_em, f.atendimento_finalizado_em,
-              p.id AS paciente_id, p.nome_completo
+              f.chamado_em, f.atendimento_iniciado_em, f.atendimento_finalizado_em
          FROM fila_atendimento f
-         JOIN pacientes p ON p.id = f.paciente_id
         WHERE f.unidade_id = $1
           AND f.status != 'finalizado'
         ORDER BY f.prioridade ASC, f.created_at ASC`,
@@ -35,9 +37,34 @@ async function listar(req, res) {
   }
 }
 
+// GET /api/fila/painel   (PROTEGIDA — painel.html)
+// Fila da unidade DO PROFISSIONAL logado (a unidade vem do token, não da URL), com o
+// nome do paciente. CPF e demais dados só em GET /api/fila/:id.
+async function listarPainel(req, res) {
+  try {
+    const { rows } = await query(
+      `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.created_at,
+              f.chamado_em, f.atendimento_iniciado_em, f.atendimento_finalizado_em,
+              p.id AS paciente_id, p.nome_completo
+         FROM fila_atendimento f
+         JOIN pacientes p ON p.id = f.paciente_id
+        WHERE f.unidade_id = $1
+          AND f.status != 'finalizado'
+        ORDER BY f.prioridade ASC, f.created_at ASC`,
+      [req.profissional.unidade_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao listar a fila do painel.' });
+  }
+}
+
 // GET /api/fila/:id — detalhe completo (paciente + avaliação), para painel.html
+// PROTEGIDA e restrita à unidade do profissional (outra unidade => 404).
 async function detalhar(req, res) {
   try {
+    if (!ehId(req.params.id)) return res.status(404).json({ erro: 'Entrada da fila não encontrada.' });
     const { rows } = await query(
       `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.created_at,
               p.nome_completo, p.cpf, p.data_nascimento, p.cns, p.telefone, p.email,
@@ -52,8 +79,9 @@ async function detalhar(req, res) {
          FROM fila_atendimento f
          JOIN pacientes p ON p.id = f.paciente_id
     LEFT JOIN avaliacoes_sintomas a ON a.id = f.avaliacao_id
-        WHERE f.id = $1`,
-      [req.params.id]
+        WHERE f.id = $1
+          AND f.unidade_id = $2`,
+      [req.params.id, req.profissional.unidade_id]
     );
 
     if (rows.length === 0) return res.status(404).json({ erro: 'Entrada da fila não encontrada.' });
@@ -67,6 +95,7 @@ async function detalhar(req, res) {
 // GET /api/fila/:id/posicao — posição e estimativa de espera, para fila.html (visão do paciente)
 async function posicao(req, res) {
   try {
+    if (!ehId(req.params.id)) return res.status(404).json({ erro: 'Entrada da fila não encontrada.' });
     const { rows } = await query(`SELECT unidade_id, prioridade, created_at FROM fila_atendimento WHERE id = $1`, [
       req.params.id,
     ]);
@@ -97,7 +126,19 @@ async function atualizarStatus(req, res) {
     const { id } = req.params;
     const { status: novoStatus, guiche } = req.body;
 
-    const { rows: atuais } = await query('SELECT status FROM fila_atendimento WHERE id = $1', [id]);
+    if (!ehId(id)) return res.status(404).json({ erro: 'Entrada da fila não encontrada.' });
+    if (!Object.prototype.hasOwnProperty.call(TRANSICAO_STATUS, novoStatus)) {
+      return res.status(400).json({ erro: 'Status inválido.' });
+    }
+    if (guiche !== undefined && guiche !== null && (typeof guiche !== 'string' || guiche.length > 10)) {
+      return res.status(400).json({ erro: 'Guichê inválido (texto de até 10 caracteres).' });
+    }
+
+    // só mexe na fila da própria unidade
+    const { rows: atuais } = await query(
+      'SELECT status FROM fila_atendimento WHERE id = $1 AND unidade_id = $2',
+      [id, req.profissional.unidade_id]
+    );
     if (atuais.length === 0) return res.status(404).json({ erro: 'Entrada da fila não encontrada.' });
 
     const statusAtual = atuais[0].status;
@@ -132,7 +173,8 @@ async function atualizarStatus(req, res) {
     params.push(id);
 
     const { rows } = await query(
-      `UPDATE fila_atendimento SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      `UPDATE fila_atendimento SET ${sets.join(', ')} WHERE id = $${idx}
+       RETURNING id, senha, prioridade, status, guiche, chamado_em, atendimento_iniciado_em, atendimento_finalizado_em`,
       params
     );
 
@@ -143,4 +185,4 @@ async function atualizarStatus(req, res) {
   }
 }
 
-module.exports = { listar, detalhar, posicao, atualizarStatus };
+module.exports = { listar, listarPainel, detalhar, posicao, atualizarStatus };

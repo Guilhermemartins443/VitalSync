@@ -45,6 +45,7 @@ CREATE TABLE profissionais (
     senha_hash   VARCHAR(255) NOT NULL,   -- nunca guardar senha em texto puro
     cargo        VARCHAR(30)  NOT NULL CHECK (cargo IN ('medico', 'enfermeiro', 'tecnico', 'recepcao', 'admin')),
     unidade_id   INT REFERENCES unidades_saude(id),
+    status       VARCHAR(10)  NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'pendente', 'recusado')),  -- 'pendente' = pediu acesso e aguarda aprovação do admin
     created_at   TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
