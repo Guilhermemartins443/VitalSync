@@ -69,7 +69,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ erro: 'Erro interno do servidor.' });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`API do AcolheSus rodando em http://localhost:${PORT}`);
-});
+// Na Vercel (serverless) o app é exportado e a plataforma cuida do servidor;
+// em Render/local (node server.js) ele sobe normalmente com app.listen.
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`API do AcolheSus rodando em http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

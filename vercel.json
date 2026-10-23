@@ -1,0 +1,6 @@
+{
+  "outputDirectory": "Public",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" }
+  ]
+}
