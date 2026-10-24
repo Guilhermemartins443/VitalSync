@@ -6,7 +6,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { pool: poolCompartilhado } = require('../db');
+const { Pool } = require('pg');
 
 const caminhoRelativo = process.argv[2];
 if (!caminhoRelativo) {
@@ -18,7 +18,7 @@ const caminhoSql = path.resolve(__dirname, '..', '..', caminhoRelativo);
 
 async function main() {
   const sql = fs.readFileSync(caminhoSql, 'utf8');
-  const pool = poolCompartilhado;
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   try {
     console.log(`Executando ${caminhoSql}...`);

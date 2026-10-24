@@ -8,6 +8,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const { query } = require('./src/db');
 
 const unidadesRoutes = require('./src/routes/unidades.routes');
 const pacientesRoutes = require('./src/routes/pacientes.routes');
@@ -22,9 +24,6 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
 }
 
 const app = express();
-
-// Atrás do proxy do Render/Railway: faz req.ip ser o IP real (o limitador de requisições depende disso).
-if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
 // CORS: FRONTEND_ORIGIN aceita várias origens separadas por vírgula. Em desenvolvimento,
 // qualquer localhost/127.0.0.1 (qualquer porta) também é aceito, para não travar o front
@@ -69,13 +68,38 @@ app.use((err, req, res, next) => {
   res.status(500).json({ erro: 'Erro interno do servidor.' });
 });
 
-// Na Vercel (serverless) o app é exportado e a plataforma cuida do servidor;
-// em Render/local (node server.js) ele sobe normalmente com app.listen.
-if (require.main === module) {
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`API do AcolheSus rodando em http://localhost:${PORT}`);
-  });
+
+// ---------------------------------------------------------
+// Admin padrão para desenvolvimento: se ainda não existir, é criado ao subir o servidor.
+// Login: admin@vitalsync.local / admin1234 (troque antes de usar de verdade).
+// Só roda fora de produção e só se o banco já tiver as tabelas e ao menos uma unidade.
+// ---------------------------------------------------------
+async function garantirAdminPadrao() {
+  if (process.env.NODE_ENV === 'production') return;
+  const email = (process.env.ADMIN_EMAIL || 'admin@vitalsync.local').toLowerCase();
+  const senha = process.env.ADMIN_SENHA || 'admin1234';
+  try {
+    const existe = await query('SELECT 1 FROM profissionais WHERE email = $1', [email]);
+    if (existe.rows.length) return;
+    const unidade = await query('SELECT id FROM unidades_saude ORDER BY id LIMIT 1');
+    if (!unidade.rows.length) {
+      console.warn('Admin padrão não criado: rode "npm run db:seed" (nenhuma unidade cadastrada).');
+      return;
+    }
+    const hash = await bcrypt.hash(senha, 10);
+    await query(
+      `INSERT INTO profissionais (nome, email, senha_hash, cargo, unidade_id, status)
+       VALUES ('Administrador', $1, $2, 'admin', $3, 'ativo')`,
+      [email, hash, unidade.rows[0].id]
+    );
+    console.log(`Admin padrão criado: ${email} / ${senha}`);
+  } catch (err) {
+    console.warn('Não foi possível criar o admin padrão:', err.message || err.code || err);
+  }
 }
 
-module.exports = app;
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`API do AcolheSus rodando em http://localhost:${PORT}`);
+  garantirAdminPadrao();
+});
