@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar · VitalSync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/stylePaciente.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <section class="brand">
+    <div class="mark"><span class="mark-dot"></span>VITALSYNC</div>
+
+    <div class="brand-body">
+      <h1>Seu histórico de saúde, sempre com você.</h1>
+      <p>Entre com seu CPF e confirme com o código enviado por WhatsApp. Sem senha pra decorar.</p>
+
+      <div class="triage">
+        <div class="triage-label">Classificação de risco em tempo real</div>
+        <div class="triage-row">
+          <span class="t-emerg"></span>
+          <span class="t-urg"></span>
+          <span class="t-pouco"></span>
+          <span class="t-naourg"></span>
+        </div>
+        <div class="triage-legend">
+          <span>Emergência</span>
+          <span>Urgente</span>
+          <span>Pouco urgente</span>
+          <span>Não urgente</span>
+        </div>
+      </div>
+
+      <div class="quote">
+        <p>"Fui a uma UPA que eu nunca tinha ido e eles já sabiam da minha alergia. Isso me deixou tranquilo."</p>
+        <span>Paciente cadastrado no VitalSync</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-side">
+    <div class="form-card">
+
+      <a href="index.html" class="back-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Voltar
+      </a>
+
+      <form id="loginForm" novalidate>
+
+        <div class="steps">
+          <div class="dot active" data-dot="1"></div>
+          <div class="bar" data-bar="1"></div>
+          <div class="dot" data-dot="2"></div>
+        </div>
+
+        <!-- STEP 1: CPF -->
+        <div class="step-pane active" data-step="1">
+          <h2>Entrar</h2>
+          <p class="sub">Informe seu CPF. Vamos enviar um código para o telefone cadastrado.</p>
+
+          <div class="field">
+            <label for="cpf">CPF</label>
+            <div class="input-shell">
+              <input id="cpf" name="cpf" type="text" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" required>
+            </div>
+            <div class="lookup-status" id="lookupStatus"></div>
+            <div class="err" id="cpfErr">Não encontramos esse CPF. <a href="paciente.html">Criar cadastro</a>.</div>
+          </div>
+
+          <div class="wizard-nav">
+            <button type="button" class="btn-primary" id="sendCode">Enviar código</button>
+          </div>
+        </div>
+
+        <!-- STEP 2: OTP -->
+        <div class="step-pane" data-step="2">
+          <h2>Verifique seu número</h2>
+          <p class="sub">Enviamos um código de 6 dígitos para <strong id="phoneDisplay">seu telefone</strong>.</p>
+
+          <div class="otp-row">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="0">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="1">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="2">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="3">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="4">
+            <input class="otp-box" type="text" inputmode="numeric" maxlength="1" data-otp="5">
+          </div>
+          <div class="err" id="otpErr">Código incorreto. Tente novamente.</div>
+
+          <div class="resend-row">
+            <span id="resendTimer">Reenviar em 0:30</span>
+            <button type="button" class="link-inline" id="resendBtn" disabled>Reenviar código</button>
+          </div>
+
+          <div class="wizard-nav">
+            <button type="button" class="btn-ghost" id="backTo1">Voltar</button>
+            <button type="submit" class="btn-primary">Entrar</button>
+          </div>
+        </div>
+
+      </form>
+
+      <div class="success-pane" id="successPane">
+        <div class="success-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <h2>Login confirmado!</h2>
+        <p class="sub">Bem-vindo(a) de volta ao VitalSync.</p>
+        <a href="historico.html" class="btn-primary" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box;">Ir para meu painel</a>
+      </div>
+
+      <p class="foot-note" id="footNote">Ainda não tem cadastro? <a href="paciente.html">Criar cadastro</a></p>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/entrar.js"></script>
+</body>
+</html>

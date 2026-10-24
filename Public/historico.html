@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meu histórico · VitalSync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/styleFila.css">
+<link rel="stylesheet" href="css/styleHistorico.css">
+</head>
+<body>
+
+<div class="fila-page">
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="mark mark-dark"><span class="mark-dot"></span>VITALSYNC</div>
+      <span class="unit-pill" id="unitPill">UBS Jardim das Flores</span>
+    </div>
+    <div class="topbar-right">
+      <span class="user-name" id="userName">Olá</span>
+      <a href="verde-paciente.html" class="logout-link">VitalSync Verde</a>
+      <a href="entrar.html" class="logout-link">Sair</a>
+    </div>
+  </header>
+
+  <nav class="paciente-tabs" aria-label="Área do paciente">
+    <a href="historico.html" class="ptab active" aria-current="page">Meu histórico</a>
+    <a href="fila.html" class="ptab">Fila de espera</a>
+    <a href="sintomas.html" class="ptab">Nova triagem</a>
+  </nav>
+
+  <main class="fila-main hist-main">
+
+    <div class="fila-heading">
+      <div>
+        <h1>Meu histórico</h1>
+        <p class="sub">Todos os seus atendimentos, com sintomas informados, receitas e orientações da equipe.</p>
+      </div>
+      <a href="sintomas.html" class="btn-primary hist-nova">Nova triagem</a>
+    </div>
+
+    <!-- sem paciente identificado -->
+    <section class="notice-card" id="semLogin" hidden>
+      <h2>Entre para ver seu histórico</h2>
+      <p>Identifique-se com seu CPF para consultar seus atendimentos.</p>
+      <a href="entrar.html" class="btn-primary notice-btn">Entrar</a>
+    </section>
+
+    <!-- logado, sem nenhum atendimento -->
+    <section class="notice-card" id="semAtendimentos" hidden>
+      <h2>Você ainda não tem atendimentos</h2>
+      <p>Quando você descrever seus sintomas e for atendido(a), tudo fica registrado aqui.</p>
+      <a href="sintomas.html" class="btn-primary notice-btn">Descrever sintomas</a>
+    </section>
+
+    <div id="conteudo" hidden>
+
+      <section class="hist-resumo" aria-label="Resumo">
+        <div class="hist-stat"><strong id="statTotal">0</strong><span>atendimentos</span></div>
+        <div class="hist-stat"><strong id="statUltimo">—</strong><span>último atendimento</span></div>
+        <div class="hist-stat"><strong id="statReceitas">0</strong><span>medicamentos receitados</span></div>
+      </section>
+
+      <div class="hist-filtros" role="group" aria-label="Filtrar atendimentos">
+        <button type="button" class="hist-chip active" data-filtro="todos">Todos</button>
+        <button type="button" class="hist-chip" data-filtro="andamento">Em andamento</button>
+        <button type="button" class="hist-chip" data-filtro="finalizado">Finalizados</button>
+      </div>
+
+      <section class="profile-card hist-lista-card">
+        <div id="histLista"></div>
+        <p class="evolucao-empty" id="filtroVazio" hidden>Nenhum atendimento neste filtro.</p>
+      </section>
+
+      <p class="fila-footnote">Anotações internas da equipe de saúde não aparecem aqui. Em caso de dúvida sobre uma receita ou orientação, procure a unidade.</p>
+    </div>
+
+  </main>
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/historico.js"></script>
+</body>
+</html>

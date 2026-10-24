@@ -1,0 +1,188 @@
+/* ---------- SINTOMAS: wizard (reaproveita .steps, .step-pane, .wizard-nav de stylePaciente) ---------- */
+
+.steps{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:28px;
+}
+.steps .dot{
+  width:8px;height:8px;
+  border-radius:50%;
+  background:var(--line);
+  transition:background .2s ease, transform .2s ease;
+}
+.steps .bar{
+  flex:1;
+  height:2px;
+  background:var(--line);
+}
+.steps .dot.active,
+.steps .bar.active{background:var(--teal-700);}
+.steps .dot.done{background:var(--teal-500);}
+
+.step-pane{display:none;}
+.step-pane.active{display:block;}
+
+.wizard-nav{
+  display:flex;
+  gap:10px;
+}
+.wizard-nav .btn-primary{flex:1;}
+.btn-ghost{
+  background:none;
+  border:1px solid var(--line);
+  color:var(--ink-soft);
+  padding:13px 16px;
+  font-size:14.5px;
+  font-weight:500;
+  font-family:'IBM Plex Sans', sans-serif;
+  cursor:pointer;
+  transition:border-color .15s ease, color .15s ease;
+}
+.btn-ghost:hover{border-color:var(--teal-700); color:var(--teal-700);}
+
+/* ---------- textarea / select dentro do input-shell padrão ---------- */
+.input-shell textarea{
+  width:100%;
+  border:0;
+  outline:none;
+  background:transparent;
+  padding:12px 14px;
+  font-size:14.5px;
+  font-family:'IBM Plex Sans', sans-serif;
+  color:var(--ink);
+  resize:vertical;
+  min-height:100px;
+}
+.input-shell textarea::placeholder{color:#9aa39d;}
+
+.select-shell select{
+  width:100%;
+  border:0;
+  outline:none;
+  background:transparent;
+  padding:12px 14px;
+  font-size:14.5px;
+  font-family:'IBM Plex Sans', sans-serif;
+  color:var(--ink);
+  appearance:none;
+  -webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234a5652' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  padding-right:36px;
+}
+
+.err{
+  display:none;
+  font-size:12.5px;
+  color:var(--coral-dark);
+  margin-top:6px;
+}
+.err.show{display:block;}
+.input-shell.invalid{border-color:var(--coral-dark);}
+
+/* ---------- ESCALA DE INTENSIDADE ---------- */
+.intensity-shell{
+  border:1px solid var(--line);
+  background:var(--white);
+  padding:16px 14px 14px;
+}
+.intensity-shell input[type="range"]{
+  width:100%;
+  accent-color:var(--coral);
+  cursor:pointer;
+}
+.intensity-scale{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:12px;
+  color:var(--ink-soft);
+  margin-top:8px;
+}
+#intensityValue{
+  font-family:'Fraunces', serif;
+  font-weight:600;
+  font-size:16px;
+  color:var(--ink);
+}
+
+/* ---------- SINTOMAS ASSOCIADOS (checkboxes) ---------- */
+.check-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+@media (max-width:420px){
+  .check-grid{grid-template-columns:1fr;}
+}
+.check-pill{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  border:1px solid var(--line);
+  background:var(--white);
+  padding:10px 12px;
+  font-size:13px;
+  color:var(--ink);
+  cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.check-pill:has(input:checked){
+  border-color:var(--teal-700);
+  background:var(--sage-100);
+  color:var(--teal-900);
+  font-weight:500;
+}
+.check-pill input{
+  width:15px;height:15px;
+  accent-color:var(--teal-700);
+  flex:none;
+}
+
+/* ---------- ANALISANDO ---------- */
+.analyzing-pane{
+  text-align:center;
+  display:none;
+  padding:20px 0;
+}
+.analyzing-pane.active{display:block;}
+.spinner-lg{
+  display:inline-block;
+  width:34px;height:34px;
+  border-radius:50%;
+  border:3px solid var(--line);
+  border-top-color:var(--teal-700);
+  animation:spin .7s linear infinite;
+  margin-bottom:18px;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ---------- RESULTADO ---------- */
+.result-pane{
+  text-align:center;
+  display:none;
+}
+.result-pane.active{display:block;}
+.result-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  font-weight:600;
+  color:var(--ink);
+  background:var(--sage-100);
+  border:1px solid var(--line-soft);
+  padding:7px 14px;
+  border-radius:20px;
+  margin-bottom:18px;
+}
+.result-badge .dot{
+  width:10px;height:10px;
+  border-radius:50%;
+  display:inline-block;
+}
+.result-pane h2{margin-bottom:10px;}
+.result-pane p.sub{margin:0 auto 28px; max-width:34ch;}

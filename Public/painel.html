@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel do profissional · VitalSync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/styleFila.css">
+<link rel="stylesheet" href="css/stylePainel.css">
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script>Auth.exigirLogin();</script>
+</head>
+<body>
+
+<div class="fila-page">
+
+  <!-- ---------- TOPBAR ---------- -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="mark mark-dark"><span class="mark-dot"></span>VITALSYNC</div>
+      <span class="unit-pill" id="unitPill">UBS Jardim das Flores</span>
+    </div>
+    <div class="topbar-right">
+      <span class="user-name" id="userName">Olá, Profissional</span>
+      <a href="verde.html" class="logout-link">VitalSync Verde</a>
+      <a href="cadastro.html" class="logout-link" id="linkEquipe" hidden>Equipe</a>
+      <a href="#" class="logout-link" data-logout>Sair</a>
+    </div>
+  </header>
+
+  <main class="fila-main painel-main">
+
+    <div class="fila-heading">
+      <div>
+        <h1>Painel de atendimento</h1>
+        <p class="sub">Acompanhe a fila da unidade e abra a ficha do paciente selecionado para ver o histórico completo.</p>
+      </div>
+      <div class="live-badge">
+        <span class="live-dot"></span>
+        AO VIVO
+        <span class="live-updated" id="liveUpdated">atualizado agora</span>
+      </div>
+    </div>
+
+    <!-- ---------- ABAS ---------- -->
+    <nav class="tabs" role="tablist" aria-label="Seções do painel">
+      <button class="tab-btn active" data-tab="fila" role="tab" aria-selected="true">Fila de atendimento</button>
+      <button class="tab-btn" data-tab="detalhes" role="tab" aria-selected="false">
+        Detalhes do paciente
+        <span class="tab-count" id="tabDetalhesBadge" hidden></span>
+      </button>
+      <button class="tab-btn" data-tab="equipe" role="tab" aria-selected="false" id="tabEquipeBtn" hidden>
+        Equipe
+        <span class="tab-count" id="tabEquipeBadge" hidden></span>
+      </button>
+    </nav>
+
+    <!-- ---------- ABA: FILA ---------- -->
+    <section class="tab-panel active" data-panel="fila" role="tabpanel">
+
+      <section class="summary-grid" id="summaryGrid">
+        <div class="summary-card" data-level="0">
+          <span class="dot t-emerg"></span>
+          <div>
+            <div class="summary-count" data-count="0">0</div>
+            <div class="summary-label">Emergência</div>
+          </div>
+        </div>
+        <div class="summary-card" data-level="1">
+          <span class="dot t-urg"></span>
+          <div>
+            <div class="summary-count" data-count="1">0</div>
+            <div class="summary-label">Urgente</div>
+          </div>
+        </div>
+        <div class="summary-card" data-level="2">
+          <span class="dot t-pouco"></span>
+          <div>
+            <div class="summary-count" data-count="2">0</div>
+            <div class="summary-label">Pouco urgente</div>
+          </div>
+        </div>
+        <div class="summary-card" data-level="3">
+          <span class="dot t-naourg"></span>
+          <div>
+            <div class="summary-count" data-count="3">0</div>
+            <div class="summary-label">Não urgente</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="queue-card">
+        <div class="queue-head">
+          <h2>Ordem de atendimento</h2>
+          <span class="queue-count" id="queueCount">0 pacientes na fila</span>
+        </div>
+
+        <div class="painel-table-head">
+          <span>Senha</span>
+          <span>Paciente</span>
+          <span>Prioridade</span>
+          <span>Espera</span>
+          <span>Status</span>
+          <span></span>
+        </div>
+
+        <div class="painel-list" id="queueList" aria-live="polite">
+          <!-- gerado via JS -->
+        </div>
+      </section>
+
+      <p class="fila-footnote">Clique em um paciente para abrir a ficha completa na aba "Detalhes do paciente".</p>
+
+    </section>
+
+    <!-- ---------- ABA: DETALHES DO PACIENTE ---------- -->
+    <section class="tab-panel" data-panel="detalhes" role="tabpanel">
+
+      <div class="empty-state" id="detalhesEmpty">
+        <div class="empty-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h2>Nenhum paciente selecionado</h2>
+        <p>Vá até a aba "Fila de atendimento" e clique em um paciente para ver os detalhes aqui.</p>
+      </div>
+
+      <div class="patient-detail" id="detalhesContent" hidden>
+
+        <div class="patient-detail-head">
+          <div>
+            <div class="patient-detail-name" id="pdNome">—</div>
+            <div class="patient-detail-meta" id="pdMeta">—</div>
+          </div>
+          <div class="patient-detail-priority-wrap">
+            <div class="patient-detail-priority" id="pdPriority">
+              <span class="dot t-pouco"></span> Pouco urgente
+            </div>
+            <button type="button" class="reclass-toggle" id="btnReclassToggle">Reclassificar risco</button>
+          </div>
+        </div>
+
+        <!-- ---------- RECLASSIFICAÇÃO MANUAL DE RISCO ---------- -->
+        <div class="reclass-panel" id="reclassPanel" hidden>
+          <div class="reclass-panel-head">
+            <h3>Reclassificação manual de risco</h3>
+            <p>Ajuste a prioridade clínica deste paciente com base na sua avaliação. A nova classificação passa a valer imediatamente na fila e fica registrada no histórico do atendimento.</p>
+          </div>
+          <div class="reclass-fields">
+            <div class="field">
+              <label for="reclassSelect">Nova classificação</label>
+              <div class="input-shell reclass-select-shell">
+                <select id="reclassSelect"></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="reclassMotivo">Motivo (opcional)</label>
+              <div class="input-shell">
+                <textarea id="reclassMotivo" rows="2" placeholder="Ex.: paciente evoluiu com piora dos sintomas."></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="reclass-actions">
+            <button type="button" class="btn-action" id="btnReclassSalvar">Salvar nova classificação</button>
+            <button type="button" class="btn-action-ghost" id="btnReclassCancelar">Cancelar</button>
+          </div>
+        </div>
+
+        <div class="detail-grid">
+
+          <div class="detail-card">
+            <h3>Dados pessoais</h3>
+            <dl class="detail-list">
+              <div><dt>CPF</dt><dd id="pdCpf">—</dd></div>
+              <div><dt>Nascimento</dt><dd id="pdNasc">—</dd></div>
+              <div><dt>Cartão do SUS</dt><dd id="pdCns">—</dd></div>
+              <div><dt>Telefone</dt><dd id="pdTel">—</dd></div>
+              <div><dt>E-mail</dt><dd id="pdEmail">—</dd></div>
+              <div><dt>Unidade de referência</dt><dd id="pdUnidade">—</dd></div>
+            </dl>
+          </div>
+
+          <div class="detail-card">
+            <h3>Avaliação de sintomas</h3>
+            <p class="detail-desc" id="pdDescricao">—</p>
+            <dl class="detail-list">
+              <div><dt>Início dos sintomas</dt><dd id="pdInicio">—</dd></div>
+              <div><dt>Intensidade</dt><dd id="pdIntensidade">—</dd></div>
+              <div><dt>Alergias / medicamentos</dt><dd id="pdAlergias">—</dd></div>
+            </dl>
+            <div class="chip-row" id="pdSintomas"></div>
+          </div>
+
+          <div class="detail-card">
+            <h3>Atendimento</h3>
+            <dl class="detail-list">
+              <div><dt>Senha</dt><dd id="pdSenha">—</dd></div>
+              <div><dt>Status</dt><dd id="pdStatus">—</dd></div>
+              <div><dt>Tempo de espera</dt><dd id="pdEspera">—</dd></div>
+              <div><dt>Guichê</dt><dd id="pdGuiche">—</dd></div>
+            </dl>
+            <div class="detail-actions" id="pdActions">
+              <button type="button" class="btn-action" id="btnAvancar">Chamar paciente</button>
+              <button type="button" class="btn-action-ghost" id="btnVoltarFila">Voltar para a fila</button>
+            </div>
+            <p class="detail-finished" id="pdFinalizado" hidden>Atendimento finalizado. Este paciente saiu da fila.</p>
+
+            <div class="reclass-history" id="pdReclassHistory" hidden>
+              <h4>Histórico de reclassificação</h4>
+              <div id="pdReclassList"></div>
+            </div>
+          </div>
+
+          <div class="detail-card detail-card-wide">
+            <h3>Prontuário rápido · Evolução médica</h3>
+
+            <div class="evolucao-list" id="pdEvolucoes">
+              <!-- gerado via JS -->
+            </div>
+
+            <form class="evolucao-form" id="evolucaoForm">
+              <div class="input-shell">
+                <textarea id="evolucaoTexto" rows="3" placeholder="Registrar evolução do atendimento: queixa, exame, conduta, orientações..." required></textarea>
+              </div>
+              <div class="evolucao-form-foot">
+                <span class="evolucao-hint">Registrado como <strong id="evolucaoAutor">Profissional</strong></span>
+                <button type="submit" class="btn-action evolucao-submit">Adicionar evolução</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- ---------- PRESCRIÇÃO DIGITAL ---------- -->
+          <div class="detail-card detail-card-wide">
+            <h3>Prescrição digital de medicamentos</h3>
+
+            <div class="receita-list" id="pdReceitas">
+              <!-- gerado via JS -->
+            </div>
+
+            <form class="receita-form" id="receitaForm">
+              <div class="receita-fields">
+                <div class="field">
+                  <label for="medNome">Medicamento</label>
+                  <div class="input-shell"><input id="medNome" type="text" placeholder="Ex.: Amoxicilina 500mg" required></div>
+                </div>
+                <div class="field">
+                  <label for="medDosagem">Dosagem</label>
+                  <div class="input-shell"><input id="medDosagem" type="text" placeholder="Ex.: 1 comprimido" required></div>
+                </div>
+                <div class="field">
+                  <label for="medPosologia">Posologia</label>
+                  <div class="input-shell"><input id="medPosologia" type="text" placeholder="Ex.: de 8 em 8 horas" required></div>
+                </div>
+                <div class="field">
+                  <label for="medDuracao">Duração</label>
+                  <div class="input-shell"><input id="medDuracao" type="text" placeholder="Ex.: 7 dias" required></div>
+                </div>
+              </div>
+              <button type="submit" class="btn-action receita-submit">Adicionar à prescrição</button>
+            </form>
+          </div>
+
+          <!-- ---------- ORIENTAÇÕES PÓS-CONSULTA E ATESTADO ---------- -->
+          <div class="detail-card detail-card-wide">
+            <h3>Orientações pós-consulta e atestado</h3>
+
+            <div class="orientacao-list" id="pdOrientacoes">
+              <!-- gerado via JS -->
+            </div>
+
+            <form class="orientacao-form" id="orientacaoForm">
+              <div class="input-shell">
+                <textarea id="orientacaoTexto" rows="3" placeholder="Orientações para o paciente após a consulta: cuidados, retorno, sinais de alerta..." required></textarea>
+              </div>
+              <label class="atestado-toggle">
+                <input type="checkbox" id="atestadoCheck">
+                Emitir atestado médico junto com esta orientação
+              </label>
+              <div class="field atestado-dias" id="atestadoDiasWrap" hidden>
+                <label for="atestadoDias">Dias de afastamento</label>
+                <div class="input-shell input-shell-narrow"><input id="atestadoDias" type="number" min="1" max="90" placeholder="Ex.: 3"></div>
+              </div>
+              <div class="evolucao-form-foot">
+                <span class="evolucao-hint">Registrado como <strong id="orientacaoAutor">Profissional</strong></span>
+                <button type="submit" class="btn-action evolucao-submit">Salvar orientação</button>
+              </div>
+            </form>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+
+  
+    <!-- ---------- ABA: EQUIPE (só admin) ---------- -->
+    <section class="tab-panel" data-panel="equipe" role="tabpanel" id="painelEquipe">
+      <div class="equipe-box">
+        <h3>Solicitações de acesso</h3>
+        <p class="equipe-sub">Profissionais que criaram login e aguardam a sua aprovação.</p>
+        <ul id="pendentesLista" class="equipe-lista"></ul>
+        <p class="equipe-vazio" id="pendentesVazio" hidden>Nenhuma solicitação pendente no momento.</p>
+        <div class="err" id="pendErr" role="alert"></div>
+        <a href="cadastro.html" class="equipe-link">Cadastrar profissional diretamente →</a>
+      </div>
+    </section>
+  </main>
+
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/painel.js"></script>
+<script src="js/equipe.js"></script>
+
+</body>
+</html>

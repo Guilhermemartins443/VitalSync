@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar · VitalSync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <section class="brand">
+    <div class="mark"><span class="mark-dot"></span>VITALSYNC</div>
+
+    <div class="brand-body">
+      <h1>A fila enxerga quem mais precisa.</h1>
+      <p>Triagem ágil, histórico do paciente sempre à mão e continuidade do cuidado depois da consulta — para que nenhum caso grave espere atrás de um caso leve.</p>
+
+      <div class="triage">
+        <div class="triage-label">Classificação de risco em tempo real</div>
+        <div class="triage-row">
+          <span class="t-emerg"></span>
+          <span class="t-urg"></span>
+          <span class="t-pouco"></span>
+          <span class="t-naourg"></span>
+        </div>
+        <div class="triage-legend">
+          <span>Emergência</span>
+          <span>Urgente</span>
+          <span>Pouco urgente</span>
+          <span>Não urgente</span>
+        </div>
+      </div>
+
+      <div class="quote">
+        <p>"Antes eu perguntava tudo de novo. Hoje abro a ficha e já sei o que aconteceu na última unidade."</p>
+        <span>Enfermeira de triagem, UBS Jardim das Flores</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="form-side">
+    <div class="form-card">
+      <a href="index.html" class="back-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        Voltar
+      </a>
+      <h2>Entrar</h2>
+      <p class="sub">Acesse o painel de triagem e acompanhamento da sua unidade de saúde.</p>
+
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="email">E-mail institucional</label>
+          <div class="input-shell">
+            <input id="email" name="email" type="email" placeholder="nome@unidade.saude.gov.br" autocomplete="username" required>
+          </div>
+          <div class="err" id="emailErr">Informe um e-mail válido.</div>
+        </div>
+
+        <div class="field">
+          <label for="password">Senha</label>
+          <div class="input-shell">
+            <input id="password" name="password" type="password" placeholder="Digite sua senha" autocomplete="current-password" required>
+            <button type="button" class="toggle-pw" id="togglePw" aria-label="Mostrar senha">
+              <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div class="err" id="pwErr">Informe sua senha.</div>
+        </div>
+
+        <div class="row-between">
+          <label class="remember">
+            <input type="checkbox" id="remember">
+            Manter conectado
+          </label>
+          <a href="#" class="forgot">Esqueci minha senha</a>
+        </div>
+
+        <div class="err" id="formErr" role="alert"></div>
+
+        <button type="submit" class="btn-primary" id="loginBtn">Entrar</button>
+
+        <div class="divider">ou</div>
+
+        <button type="button" class="btn-secondary">
+          <span class="gov-badge">gov</span>
+          Entrar com certificado gov.br
+        </button>
+      </form>
+
+      <p class="foot-note" id="demoNote" hidden></p>
+      <p class="foot-note">Ainda não tem login? <a href="solicitar.html">Criar login de profissional</a></p>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/login.js"></script>
+
+</body>
+</html>
