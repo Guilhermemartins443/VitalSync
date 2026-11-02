@@ -1,13 +1,15 @@
 {
-  "framework": null,
-  "outputDirectory": "Public",
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "Backend/{server.js,src/**}",
-      "maxDuration": 15
+  "version": 2,
+  "builds": [
+    {
+      "src": "Backend/server.js",
+      "use": "@vercel/node"
     }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.js" }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "destination": "Backend/server.js"
+    }
   ]
 }
