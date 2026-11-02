@@ -106,6 +106,18 @@ const VitalSyncStore = (function () {
     try { localStorage.setItem(KEYS.PACIENTE_ATUAL, id); } catch (err) { /* segue sem persistir */ }
   }
 
+  // Token da sessão do paciente no servidor (modo API): entregue ao confirmar o código OTP,
+  // vale poucas horas e só abre os dados do próprio paciente.
+  const KEY_PACIENTE_TOKEN = 'vitalsync_paciente_token';
+  function setPacienteToken(token) {
+    try {
+      if (token) localStorage.setItem(KEY_PACIENTE_TOKEN, token); else localStorage.removeItem(KEY_PACIENTE_TOKEN);
+    } catch (err) { /* sem storage: segue */ }
+  }
+  function getPacienteToken() {
+    try { return localStorage.getItem(KEY_PACIENTE_TOKEN); } catch (err) { return null; }
+  }
+
   function getPacienteAtual() {
     let id = null;
     try { id = localStorage.getItem(KEYS.PACIENTE_ATUAL); } catch (err) { /* indisponível */ }
@@ -150,6 +162,88 @@ const VitalSyncStore = (function () {
 
   function getFilaEntry(id) {
     return getFila().find(f => f.id === id) || null;
+  }
+
+  // ---------- PRONTUÁRIO NO MODO LOCAL ----------
+  // Mesma interface do FilaAPI (js/fila-api.js), que grava no servidor. Aqui tudo fica na própria
+  // entrada da fila, no localStorage. Cada função devolve Promise<true>.
+  function _entradaOuErro(id) {
+    const f = getFilaEntry(id);
+    if (!f) return null;
+    return f;
+  }
+
+  function adicionarEvolucao(id, texto, autor) {
+    const f = _entradaOuErro(id);
+    if (!f) return Promise.resolve(false);
+    const lista = (f.evolucoes || []).concat([{ id: uid(), autor, texto, criadoEm: Date.now() }]);
+    updateFilaEntry(f.id, { evolucoes: lista });
+    return Promise.resolve(true);
+  }
+
+  function adicionarMedicamento(id, med, autor) {
+    const f = _entradaOuErro(id);
+    if (!f) return Promise.resolve(false);
+    const receitas = f.receitas || [];
+    let atual = receitas[receitas.length - 1];
+    if (!atual || atual.por !== autor) {
+      atual = { id: uid(), criadoEm: Date.now(), por: autor, medicamentos: [] };
+      receitas.push(atual);
+    }
+    atual.medicamentos.push({ id: uid(), ...med, comprado: false, lembretes: [] });
+    updateFilaEntry(f.id, { receitas });
+    return Promise.resolve(true);
+  }
+
+  function registrarLembrete(id, medId, canal) {
+    const f = _entradaOuErro(id);
+    if (!f) return Promise.resolve(false);
+    const receitas = f.receitas || [];
+    receitas.forEach(r => {
+      const med = (r.medicamentos || []).find(m => m.id === medId);
+      if (med) med.lembretes = (med.lembretes || []).concat([{ id: uid(), canal, enviadoEm: Date.now() }]);
+    });
+    updateFilaEntry(f.id, { receitas });
+    return Promise.resolve(true);
+  }
+
+  function adicionarOrientacao(id, dados, autor) {
+    const f = _entradaOuErro(id);
+    if (!f) return Promise.resolve(false);
+    const lista = (f.orientacoes || []).concat([{
+      id: uid(), por: autor, texto: dados.texto, atestado: !!dados.atestado,
+      diasAfastamento: dados.atestado ? dados.diasAfastamento : null, criadoEm: Date.now(),
+    }]);
+    updateFilaEntry(f.id, { orientacoes: lista });
+    return Promise.resolve(true);
+  }
+
+  function reclassificar(id, nivel, motivo, autor) {
+    const f = _entradaOuErro(id);
+    if (!f) return Promise.resolve(false);
+    if (nivel === f.level) return Promise.resolve(true);
+    const historico = (f.reclassificacoes || []).concat([{ id: uid(), de: f.level, para: nivel, motivo: motivo || '', em: Date.now(), por: autor }]);
+    updateFilaEntry(f.id, { level: nivel, reclassificacoes: historico });
+    return Promise.resolve(true);
+  }
+
+  // ---------- "MEUS ATENDIMENTOS" (paciente) NO MODO LOCAL ----------
+  function getMeusAtendimentos() {
+    const paciente = getPacienteAtual();
+    if (!paciente) return [];
+    return getFila().filter(f => f.pacienteId === paciente.id).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  function confirmarCompra(atendimentoId, medId) {
+    const f = getFilaEntry(atendimentoId);
+    if (!f) return Promise.resolve(false);
+    const receitas = f.receitas || [];
+    receitas.forEach(r => {
+      const med = (r.medicamentos || []).find(m => m.id === medId);
+      if (med && !med.comprado) { med.comprado = true; med.compradoEm = Date.now(); }
+    });
+    updateFilaEntry(f.id, { receitas });
+    return Promise.resolve(true);
   }
 
   function setMinhaSenhaId(id) {
@@ -228,7 +322,10 @@ const VitalSyncStore = (function () {
     savePaciente, findPacienteByCpf, getPaciente, getPacientes,
     setPacienteAtual, getPacienteAtual,
     nextSenha,
+    setPacienteToken, getPacienteToken,
     getFila, addToFila, updateFilaEntry, getFilaEntry,
+    adicionarEvolucao, adicionarMedicamento, registrarLembrete, adicionarOrientacao, reclassificar,
+    getMeusAtendimentos, confirmarCompra, carregarMeusAtendimentos() { return Promise.resolve(); },
     setMinhaSenhaId, getMinhaSenhaId,
     seedIfEmpty,
     onChange,

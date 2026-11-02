@@ -35,6 +35,8 @@
 
   <main class="fila-main">
 
+    <div class="aviso-sync" id="avisoSync" role="alert" hidden></div>
+
     <div class="fila-heading">
       <div>
         <h1>Fila de espera em tempo real</h1>
@@ -69,7 +71,7 @@
           <div class="hero-stat-label">na fila</div>
         </div>
         <div class="hero-stat">
-          <div class="hero-stat-value" id="heroWait">~22 min</div>
+          <div class="hero-stat-value" id="heroWait">—</div>
           <div class="hero-stat-label">espera estimada</div>
         </div>
         <div class="hero-stat">
@@ -81,6 +83,16 @@
         <div class="hero-status" id="heroStatus">Aguardando chamada</div>
         <p class="hero-note">Fique por perto. Vamos te avisar aqui quando estiver perto da sua vez.</p>
       </div>
+    </section>
+
+    <!-- ---------- AVISOS NESTA TELA (som / vibração / notificação) ---------- -->
+    <section class="alertas-card" id="alertasCard" hidden>
+      <div class="alertas-text">
+        <strong>Avisos nesta tela</strong>
+        <span id="alertasStatus">Ative para ouvir um sinal e sentir a vibração quando for a sua vez.</span>
+        <span class="alertas-extra" id="alertasExtra" hidden></span>
+      </div>
+      <button type="button" class="btn-alertas" id="alertasBtn">Ativar avisos</button>
     </section>
 
     <!-- ---------- RESUMO POR PRIORIDADE ---------- -->
@@ -166,7 +178,10 @@
   </div>
 </div>
 
+<script src="js/config.js"></script>
 <script src="js/store.js"></script>
+<script src="js/fila-api.js"></script>
+<script src="js/avisos.js"></script>
 <script src="js/fila.js"></script>
 </body>
 </html>

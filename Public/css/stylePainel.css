@@ -258,6 +258,7 @@
 
 .detail-actions{
   display:flex;
+  flex-wrap:wrap;
   gap:10px;
   margin-top:16px;
 }
@@ -290,6 +291,52 @@
   transition:border-color .15s ease, background .15s ease;
 }
 .btn-action-ghost:hover{border-color:var(--teal-700); background:var(--sage-100);}
+.btn-action-danger{color:#b3261e; border-color:#e3b5b1;}
+.btn-action-danger:hover{border-color:#b3261e; background:#fdecea;}
+.btn-action-ghost:disabled{opacity:.5; cursor:not-allowed;}
+.btn-action-ghost:disabled:hover{border-color:var(--line); background:var(--white);}
+
+.detail-alert{
+  margin:12px 0 0;
+  padding:9px 12px;
+  border-radius:4px;
+  font-size:12.5px;
+  line-height:1.4;
+  background:#fdecea;
+  color:#8c1d18;
+  border:1px solid #f3b8b3;
+}
+.detail-alert[hidden]{display:none;}
+/* partes escondidas por cargo (permissões do prontuário) */
+.detail-card[hidden], .evolucao-form[hidden], .receita-form[hidden], .orientacao-form[hidden],
+.atestado-toggle[hidden], .reclass-toggle[hidden], .med-actions[hidden]{display:none !important;}
+
+/* local de atendimento de quem está chamando */
+.guiche-bar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px;
+  margin:0 0 16px;
+  padding:10px 14px;
+  background:var(--white);
+  border:1px solid var(--line);
+  border-radius:4px;
+}
+.guiche-bar label{font-size:12.5px; font-weight:600; color:var(--ink);}
+.guiche-bar input{
+  width:190px;
+  padding:7px 10px;
+  font:inherit;
+  font-size:13.5px;
+  border:1px solid var(--line);
+  border-radius:4px;
+  background:var(--white);
+  color:var(--ink);
+}
+.guiche-bar input:focus{outline:2px solid var(--teal-700); outline-offset:1px;}
+.guiche-bar input.is-invalid{border-color:#b3261e; outline:2px solid #f3b8b3;}
+.guiche-hint{font-size:12px; color:var(--ink-soft);}
 
 .detail-finished{
   margin:14px 0 0;

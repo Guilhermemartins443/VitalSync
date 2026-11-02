@@ -1,30 +1,70 @@
 /* =========================================================
    PAINEL DO PROFISSIONAL — FILA + DETALHES DO PACIENTE
-   Lê e escreve na mesma fila compartilhada do VitalSyncStore
-   (js/store.js) usada pela tela do paciente (js/fila.js).
-   Quando o profissional chama/atende/finaliza um paciente,
-   a mudança aparece sozinha na tela desse paciente (outra aba
-   do mesmo navegador) — e vice-versa, quando um paciente novo
-   envia sintomas, ele aparece aqui sem precisar recarregar.
+   Modo 'api' (padrão, js/config.js): a fila é a REAL — vem do back-end
+   (js/fila-api.js) e atualiza sozinha a cada poucos segundos, então o
+   que o profissional faz aqui aparece na tela do paciente em outro
+   aparelho, e vice-versa.
+   Modo 'local' (demonstração): usa o VitalSyncStore (localStorage),
+   que só sincroniza abas do MESMO navegador.
 ========================================================= */
 
 const PRIORITY = VitalSyncStore.PRIORITY;
 const SINTOMAS_CATALOGO = VitalSyncStore.SINTOMAS_CATALOGO;
 const TEMPO_INICIO_LABEL = VitalSyncStore.TEMPO_INICIO_LABEL;
 
-VitalSyncStore.seedIfEmpty();
+// Fila real (API) ou simulada (localStorage), conforme js/config.js
+const Dados = FilaAPI.ativo ? FilaAPI : VitalSyncStore;
+
+const MAX_CHAMADAS = 3;            // 1ª chamada + 2 rechamadas (igual ao back-end)
+const ALERTA_CHAMADA_SEG = 5 * 60; // chamando há 5 min sem resposta -> alerta no painel
+
+Dados.seedIfEmpty();
+
+// ---------- MEU GUICHÊ / SALA ----------
+// Quem chama diz onde está atendendo; o paciente vê esse local (e recebe por mensagem).
+// Fica salvo neste navegador, por profissional, para não digitar todo dia.
+const meuGuicheInput = document.getElementById('meuGuiche');
+const chaveGuiche = `vitalsync_guiche_${((window.Auth && Auth.getProfissional()) || {}).id || 'anon'}`;
+try { meuGuicheInput.value = localStorage.getItem(chaveGuiche) || ''; } catch (e) { /* segue vazio */ }
+
+function lerGuiche() {
+  return (meuGuicheInput.value || '').trim();
+}
+
+meuGuicheInput.addEventListener('input', () => {
+  meuGuicheInput.classList.remove('is-invalid');
+  try { localStorage.setItem(chaveGuiche, lerGuiche()); } catch (e) { /* sem storage: segue */ }
+});
+
+// devolve o guichê, ou avisa e leva o foco para o campo se estiver vazio
+function exigirGuiche() {
+  const g = lerGuiche();
+  if (g) return g;
+  meuGuicheInput.classList.add('is-invalid');
+  meuGuicheInput.focus();
+  window.dispatchEvent(new CustomEvent('vitalsync:aviso', {
+    detail: { tipo: 'erro', mensagem: 'Informe o seu guichê ou sala antes de chamar o paciente.' },
+  }));
+  return null;
+}
 
 let selectedId = null;
+let carregou = !FilaAPI.ativo; // no modo API, só "carregou" depois da 1ª resposta do servidor
 let secondsSinceUpdate = 0;
 
 // ---------- HELPERS ----------
+// Espera = da ENTRADA do paciente na fila (createdAt) até ser CHAMADO (chamadoEm).
+// Enquanto ainda aguarda, conta até agora; depois de chamado, o tempo congela.
 function waitSeconds(entry) {
-  return Math.max(0, Math.floor((Date.now() - entry.createdAt) / 1000));
+  const fim = entry.chamadoEm || Date.now();
+  return Math.max(0, Math.floor((fim - entry.createdAt) / 1000));
 }
 
 function formatWait(seconds) {
-  const m = Math.floor(seconds / 60);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')} min`;
   if (m === 0) return `${s}s`;
   return `${m} min`;
 }
@@ -54,7 +94,33 @@ function statusLabel(status) {
   if (status === 'chamando') return { text: 'Chamando', cls: 'status-chamando' };
   if (status === 'atendimento') return { text: 'Em atendimento', cls: 'status-atendimento' };
   if (status === 'finalizado') return { text: 'Finalizado', cls: 'status-aguardando' };
+  if (status === 'desistencia') return { text: 'Não compareceu', cls: 'status-aguardando' };
   return { text: 'Aguardando', cls: 'status-aguardando' };
+}
+
+// há quantos segundos foi feita a chamada mais recente (modo API: chamandoDesde; local: ultimaChamadaEm)
+function chamandoHaSegundos(f) {
+  const desde = f.chamandoDesde || f.ultimaChamadaEm || f.chamadoEm;
+  return desde ? Math.max(0, Math.floor((Date.now() - desde) / 1000)) : 0;
+}
+
+function chamadaEmAlerta(f) {
+  return f.status === 'chamando' && chamandoHaSegundos(f) >= ALERTA_CHAMADA_SEG;
+}
+
+// texto/classe da coluna "Status": para quem está sendo chamado mostra guichê, há quanto
+// tempo e qual chamada é; passa a vermelho quando demora demais
+function statusCelula(f) {
+  const st = statusLabel(f.status);
+  if (f.status !== 'chamando') {
+    return { text: f.status === 'atendimento' && f.guiche ? `${st.text} · ${f.guiche}` : st.text, cls: st.cls };
+  }
+  const partes = [st.text];
+  if (f.guiche) partes.push(f.guiche);
+  const min = Math.floor(chamandoHaSegundos(f) / 60);
+  if (min >= 1) partes.push(`há ${min} min`);
+  if ((f.chamadas || 1) > 1) partes.push(`${f.chamadas}ª chamada`);
+  return { text: partes.join(' · '), cls: st.cls + (chamadaEmAlerta(f) ? ' status-alerta' : '') };
 }
 
 function sortFila(fila) {
@@ -75,6 +141,20 @@ function currentProfissionalName() {
   return (prof && prof.nome) || 'Profissional';
 }
 
+// Quem pode o quê no prontuário. ESPELHO de Backend/src/utils/permissoes.js: o servidor é quem
+// decide (devolve 403); aqui só escondemos o que o cargo não pode usar.
+const PERMISSOES = {
+  lerProntuario: ['medico', 'enfermeiro', 'tecnico', 'admin'],
+  evoluir: ['medico', 'enfermeiro', 'admin'],
+  prescrever: ['medico', 'admin'],
+  lembrete: ['medico', 'enfermeiro', 'admin'],
+  reclassificar: ['medico', 'enfermeiro', 'admin'],
+};
+const cargoAtual = ((window.Auth && Auth.getProfissional()) || {}).cargo;
+function pode(acao) {
+  return (PERMISSOES[acao] || []).includes(cargoAtual);
+}
+
 function uidLocal() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -87,15 +167,18 @@ function escapeHtml(str) {
 
 // junta cada entrada da fila com os dados do paciente correspondente
 function filaComPacientes() {
-  return VitalSyncStore.getFila().map(f => ({
+  return Dados.getFila().map(f => ({
     ...f,
-    paciente: VitalSyncStore.getPaciente(f.pacienteId) || {},
+    paciente: Dados.getPaciente(f.pacienteId) || {},
   }));
 }
 
 // ---------- ELEMENTOS ----------
 const summaryGrid = document.getElementById('summaryGrid');
 const queueList = document.getElementById('queueList');
+const activeList = document.getElementById('activeList');
+const activeCard = document.getElementById('activeCard');
+const activeCount = document.getElementById('activeCount');
 const queueCount = document.getElementById('queueCount');
 const liveUpdated = document.getElementById('liveUpdated');
 const userName = document.getElementById('userName');
@@ -175,50 +258,60 @@ tabButtons.forEach(btn => {
 function renderSummary(fila) {
   PRIORITY.forEach(p => {
     const el = summaryGrid.querySelector(`[data-count="${p.level}"]`);
-    const n = fila.filter(f => f.level === p.level && f.status !== 'finalizado').length;
+    const n = fila.filter(f => f.level === p.level && f.status === 'aguardando').length;
     if (el) el.textContent = n;
   });
 }
 
 // ---------- RENDER: FILA ----------
+// Fila de espera = só quem está "aguardando". Quem já foi chamado ou está em
+// atendimento sai da fila e aparece no bloco "Chamados e em atendimento".
+function criarLinha(f) {
+  const meta = PRIORITY[f.level];
+  const st = statusCelula(f);
+  const row = document.createElement('div');
+  row.className = `painel-row${f.id === selectedId ? ' is-selected' : ''}`;
+  row.dataset.id = String(f.id);
+  row.setAttribute('role', 'button');
+  row.setAttribute('tabindex', '0');
+
+  row.innerHTML = `
+    <div class="p-ticket">${escapeHtml(f.senha)}</div>
+    <div class="p-name">${escapeHtml(f.paciente.nome_completo || 'Paciente não identificado')}</div>
+    <div class="p-priority"><span class="dot ${meta.dot}"></span>${meta.label}</div>
+    <div class="p-wait">${formatWait(waitSeconds(f))}</div>
+    <div class="p-status ${escapeHtml(st.cls)}">${escapeHtml(st.text)}</div>
+    <div class="p-action">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  `;
+
+  row.addEventListener('click', () => selectPatient(f.id, true));
+  row.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectPatient(f.id, true);
+    }
+  });
+  return row;
+}
+
 function renderQueue() {
   const fila = filaComPacientes();
-  const visiveis = sortFila(fila.filter(f => f.status !== 'finalizado'));
+  const aguardando = sortFila(fila.filter(f => f.status === 'aguardando'));
+  const emAndamento = sortFila(fila.filter(f => f.status === 'chamando' || f.status === 'atendimento'));
 
   queueList.innerHTML = '';
+  aguardando.forEach(f => queueList.appendChild(criarLinha(f)));
 
-  visiveis.forEach(f => {
-    const meta = PRIORITY[f.level];
-    const st = statusLabel(f.status);
-    const row = document.createElement('div');
-    row.className = `painel-row${f.id === selectedId ? ' is-selected' : ''}`;
-    row.dataset.id = String(f.id);
-    row.setAttribute('role', 'button');
-    row.setAttribute('tabindex', '0');
+  activeList.innerHTML = '';
+  emAndamento.forEach(f => activeList.appendChild(criarLinha(f)));
+  activeCard.hidden = emAndamento.length === 0;
+  activeCount.textContent = `${emAndamento.length} ${emAndamento.length === 1 ? 'paciente' : 'pacientes'}`;
 
-    row.innerHTML = `
-      <div class="p-ticket">${escapeHtml(f.senha)}</div>
-      <div class="p-name">${escapeHtml(f.paciente.nome_completo || 'Paciente não identificado')}</div>
-      <div class="p-priority"><span class="dot ${meta.dot}"></span>${meta.label}</div>
-      <div class="p-wait">${formatWait(waitSeconds(f))}</div>
-      <div class="p-status ${escapeHtml(st.cls)}">${escapeHtml(st.text)}</div>
-      <div class="p-action">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      </div>
-    `;
-
-    row.addEventListener('click', () => selectPatient(f.id, true));
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectPatient(f.id, true);
-      }
-    });
-
-    queueList.appendChild(row);
-  });
-
-  queueCount.textContent = `${visiveis.length} ${visiveis.length === 1 ? 'paciente' : 'pacientes'} na fila`;
+  queueCount.textContent = carregou
+    ? `${aguardando.length} ${aguardando.length === 1 ? 'paciente' : 'pacientes'} na fila`
+    : 'Carregando a fila...';
   renderSummary(fila);
 }
 
@@ -227,6 +320,7 @@ function selectPatient(id, switchTab) {
   selectedId = id;
   renderQueue();
   renderDetails();
+  if (Dados.carregarDetalhe) Dados.carregarDetalhe(id); // modo API: busca CPF, sintomas etc.
   if (switchTab) goToTab('detalhes');
 }
 
@@ -274,7 +368,8 @@ function renderDetails() {
 
   document.getElementById('pdSenha').textContent = f.senha;
   const st = statusLabel(f.status);
-  document.getElementById('pdStatus').textContent = st.text;
+  document.getElementById('pdStatus').textContent =
+    f.status === 'chamando' && (f.chamadas || 1) > 1 ? `${st.text} (${f.chamadas}ª chamada)` : st.text;
   document.getElementById('pdEspera').textContent = formatWait(waitSeconds(f));
   document.getElementById('pdGuiche').textContent = f.guiche || '—';
 
@@ -310,7 +405,7 @@ function renderReclass(f) {
 }
 
 btnReclassToggle.addEventListener('click', () => {
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
   reclassSelect.value = String(f.level);
   reclassMotivo.value = '';
@@ -323,7 +418,7 @@ btnReclassCancelar.addEventListener('click', () => {
 });
 
 btnReclassSalvar.addEventListener('click', () => {
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
 
   const novoLevel = Number(reclassSelect.value);
@@ -334,15 +429,8 @@ btnReclassSalvar.addEventListener('click', () => {
     return;
   }
 
-  const historico = (f.reclassificacoes || []).concat([{
-    de: f.level,
-    para: novoLevel,
-    motivo,
-    em: Date.now(),
-    por: currentProfissionalName(),
-  }]);
-
-  VitalSyncStore.updateFilaEntry(f.id, { level: novoLevel, reclassificacoes: historico });
+  // grava no servidor (com o motivo); a tela se redesenha quando a gravação termina
+  Dados.reclassificar(f.id, novoLevel, motivo, currentProfissionalName());
 });
 
 // ---------- PRONTUÁRIO RÁPIDO · EVOLUÇÃO MÉDICA ----------
@@ -366,24 +454,16 @@ function renderEvolucoes(f) {
   `).join('');
 }
 
-evolucaoForm.addEventListener('submit', (e) => {
+evolucaoForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
 
   const texto = evolucaoTexto.value.trim();
   if (!texto) return;
 
-  const nova = {
-    id: uidLocal(),
-    autor: currentProfissionalName(),
-    texto,
-    criadoEm: Date.now(),
-  };
-  const lista = (f.evolucoes || []).concat([nova]);
-
-  VitalSyncStore.updateFilaEntry(f.id, { evolucoes: lista });
-  evolucaoTexto.value = '';
+  // só limpa o campo se gravou (se falhar, o texto continua lá e o aviso explica)
+  if (await Dados.adicionarEvolucao(f.id, texto, currentProfissionalName())) evolucaoTexto.value = '';
 });
 
 // ---------- PRESCRIÇÃO DIGITAL DE MEDICAMENTOS ----------
@@ -400,7 +480,7 @@ function renderReceitas(f) {
   const receitas = f.receitas || [];
 
   if (!receitas.length) {
-    pdReceitas.innerHTML = '<p class="evolucao-empty">Nenhum medicamento prescrito neste atendimento ainda. Use o formulário abaixo para adicionar.</p>';
+    pdReceitas.innerHTML = `<p class="evolucao-empty">Nenhum medicamento prescrito neste atendimento ainda.${pode('prescrever') ? ' Use o formulário abaixo para adicionar.' : ''}</p>`;
     return;
   }
 
@@ -414,7 +494,7 @@ function renderReceitas(f) {
             <span>${escapeHtml(med.dosagem)} · ${escapeHtml(med.posologia)} · ${escapeHtml(med.duracao)}</span>
             ${med.comprado ? '<span class="badge-confirmado">Compra/adesão confirmada pelo paciente</span>' : '<span class="badge-pendente">Aguardando confirmação do paciente</span>'}
           </div>
-          <div class="med-actions">
+          <div class="med-actions"${pode('lembrete') ? '' : ' hidden'}>
             <button type="button" class="btn-mini btn-lembrete-zap" data-canal="whatsapp">Lembrete WhatsApp</button>
             <button type="button" class="btn-mini btn-lembrete-sms" data-canal="sms">Lembrete SMS</button>
           </div>
@@ -432,9 +512,9 @@ function renderReceitas(f) {
 }
 
 function enviarLembrete(receitaId, medId, canal) {
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
-  const paciente = VitalSyncStore.getPaciente(f.pacienteId);
+  const paciente = Dados.getPaciente(f.pacienteId);
   const receitas = f.receitas || [];
   const receita = receitas.find(r => r.id === receitaId);
   if (!receita) return;
@@ -450,13 +530,12 @@ function enviarLembrete(receitaId, medId, canal) {
     window.open(`sms:+55${telefoneDigits}?body=${texto}`, '_blank');
   }
 
-  med.lembretes = (med.lembretes || []).concat([{ id: uidLocal(), canal, enviadoEm: Date.now() }]);
-  VitalSyncStore.updateFilaEntry(f.id, { receitas });
+  Dados.registrarLembrete(f.id, medId, canal);
 }
 
-receitaForm.addEventListener('submit', (e) => {
+receitaForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
 
   const nome = medNome.value.trim();
@@ -465,18 +544,9 @@ receitaForm.addEventListener('submit', (e) => {
   const duracao = medDuracao.value.trim();
   if (!nome || !dosagem || !posologia || !duracao) return;
 
-  const novoMed = { id: uidLocal(), nome, dosagem, posologia, duracao, comprado: false, lembretes: [] };
-  const receitas = f.receitas || [];
-  let atual = receitas[receitas.length - 1];
-
-  if (!atual || atual.por !== currentProfissionalName()) {
-    atual = { id: uidLocal(), criadoEm: Date.now(), por: currentProfissionalName(), medicamentos: [] };
-    receitas.push(atual);
-  }
-  atual.medicamentos.push(novoMed);
-
-  VitalSyncStore.updateFilaEntry(f.id, { receitas });
-  receitaForm.reset();
+  // o remédio entra na receita aberta DESTE profissional neste atendimento (ou abre uma nova)
+  const med = { nome, dosagem, posologia, duracao };
+  if (await Dados.adicionarMedicamento(f.id, med, currentProfissionalName())) receitaForm.reset();
 });
 
 // ---------- ORIENTAÇÕES PÓS-CONSULTA E ATESTADO ----------
@@ -505,38 +575,68 @@ atestadoCheck.addEventListener('change', () => {
   atestadoDiasWrap.hidden = !atestadoCheck.checked;
 });
 
-orientacaoForm.addEventListener('submit', (e) => {
+orientacaoForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
 
   const texto = orientacaoTexto.value.trim();
   if (!texto) return;
 
-  const nova = {
-    id: uidLocal(),
-    por: currentProfissionalName(),
-    texto,
-    atestado: atestadoCheck.checked,
-    diasAfastamento: atestadoCheck.checked ? (Number(atestadoDias.value) || 1) : null,
-    criadoEm: Date.now(),
-  };
-  const lista = (f.orientacoes || []).concat([nova]);
+  const atestado = atestadoCheck.checked;
+  const dias = Number(atestadoDias.value);
+  if (atestado && !(Number.isInteger(dias) && dias >= 1 && dias <= 365)) {
+    window.dispatchEvent(new CustomEvent('vitalsync:aviso', {
+      detail: { tipo: 'erro', mensagem: 'Informe os dias de afastamento do atestado (1 a 365).' },
+    }));
+    return;
+  }
 
-  VitalSyncStore.updateFilaEntry(f.id, { orientacoes: lista });
-  orientacaoForm.reset();
-  atestadoDiasWrap.hidden = true;
+  const dados = { texto, atestado, diasAfastamento: atestado ? dias : null };
+  if (await Dados.adicionarOrientacao(f.id, dados, currentProfissionalName())) {
+    orientacaoForm.reset();
+    atestadoDiasWrap.hidden = true;
+  }
 });
+
+function renderAlertaChamada(f) {
+  const el = document.getElementById('pdAlertaChamada');
+  if (!f || f.status !== 'chamando') { el.hidden = true; return; }
+
+  const chamadas = f.chamadas || 1;
+  if (chamadas >= MAX_CHAMADAS) {
+    el.textContent = `Já foi chamado ${chamadas} vezes e não respondeu. Marque "Não compareceu" ou volte o paciente para a fila.`;
+    el.hidden = false;
+  } else if (chamadaEmAlerta(f)) {
+    const min = Math.floor(chamandoHaSegundos(f) / 60);
+    el.textContent = `Chamando há ${min} min sem resposta. Rechame ou marque "Não compareceu".`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
 
 function renderActions(f) {
   const btnAvancar = document.getElementById('btnAvancar');
   const btnVoltar = document.getElementById('btnVoltarFila');
-  const finishedMsg = document.getElementById('pdFinalizado');
+  const btnRechamar = document.getElementById('btnRechamar');
+  const btnNaoCompareceu = document.getElementById('btnNaoCompareceu');
+  const encerradoMsg = document.getElementById('pdFinalizado');
 
-  finishedMsg.hidden = f.status !== 'finalizado';
-  btnVoltar.hidden = f.status === 'finalizado';
+  const encerrado = f.status === 'finalizado' || f.status === 'desistencia';
 
-  if (f.status === 'finalizado') {
+  encerradoMsg.hidden = !encerrado;
+  if (encerrado) {
+    encerradoMsg.textContent = f.status === 'desistencia'
+      ? 'Paciente não compareceu à chamada. Ele saiu da fila.'
+      : 'Atendimento finalizado. Este paciente saiu da fila.';
+  }
+  btnVoltar.hidden = encerrado;
+  btnRechamar.hidden = f.status !== 'chamando';
+  btnNaoCompareceu.hidden = f.status !== 'chamando';
+  renderAlertaChamada(f);
+
+  if (encerrado) {
     btnAvancar.hidden = true;
     return;
   }
@@ -548,56 +648,136 @@ function renderActions(f) {
     btnAvancar.textContent = 'Chamar paciente';
   } else if (f.status === 'chamando') {
     btnAvancar.textContent = 'Iniciar atendimento';
+    const chamadas = f.chamadas || 1;
+    btnRechamar.textContent = `Rechamar (${chamadas}/${MAX_CHAMADAS})`;
+    btnRechamar.disabled = chamadas >= MAX_CHAMADAS;
   } else if (f.status === 'atendimento') {
     btnAvancar.textContent = 'Finalizar atendimento';
   }
 }
 
 document.getElementById('btnAvancar').addEventListener('click', () => {
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
 
   if (f.status === 'aguardando') {
-    VitalSyncStore.updateFilaEntry(f.id, { status: 'chamando', guiche: `Guichê ${1 + Math.floor(Math.random() * 4)}` });
+    const guiche = exigirGuiche();
+    if (!guiche) return;
+    const agora = Date.now();
+    // chamadoEm: congela o tempo de espera na 1ª chamada (modo local; na API o servidor calcula)
+    Dados.updateFilaEntry(f.id, {
+      status: 'chamando', chamadoEm: agora, chamadas: 1, ultimaChamadaEm: agora, guiche,
+    });
   } else if (f.status === 'chamando') {
-    VitalSyncStore.updateFilaEntry(f.id, { status: 'atendimento' });
+    Dados.updateFilaEntry(f.id, { status: 'atendimento' });
   } else if (f.status === 'atendimento') {
-    VitalSyncStore.updateFilaEntry(f.id, { status: 'finalizado' });
+    Dados.updateFilaEntry(f.id, { status: 'finalizado' });
   }
 });
 
+// Rechamar: mesmo paciente, nova chamada (até MAX_CHAMADAS). A espera segue congelada na 1ª.
+let ultimaRechamadaEm = 0;
+document.getElementById('btnRechamar').addEventListener('click', () => {
+  const f = Dados.getFilaEntry(selectedId);
+  if (!f || f.status !== 'chamando') return;
+  if (Date.now() - ultimaRechamadaEm < 2000) return; // clique duplo não gasta duas chamadas
+  ultimaRechamadaEm = Date.now();
+  const chamadas = f.chamadas || 1;
+  if (chamadas >= MAX_CHAMADAS) return;
+  // se o profissional trocou de guichê/sala desde a 1ª chamada, a rechamada já leva o novo local
+  Dados.updateFilaEntry(f.id, {
+    status: 'chamando', chamadas: chamadas + 1, ultimaChamadaEm: Date.now(),
+    ...(lerGuiche() ? { guiche: lerGuiche() } : {}),
+  });
+});
+
+// Não compareceu: o paciente sai da fila. Para voltar, precisa de uma nova avaliação (nova senha).
+document.getElementById('btnNaoCompareceu').addEventListener('click', () => {
+  const f = Dados.getFilaEntry(selectedId);
+  if (!f || f.status !== 'chamando') return;
+  const nome = (Dados.getPaciente(f.pacienteId) || {}).nome_completo || f.senha;
+  if (!window.confirm(`Marcar ${nome} como "não compareceu"? Ele sairá da fila e precisará de uma nova senha.`)) return;
+  Dados.updateFilaEntry(f.id, { status: 'desistencia', desistenciaEm: Date.now() });
+});
+
 document.getElementById('btnVoltarFila').addEventListener('click', () => {
-  const f = VitalSyncStore.getFilaEntry(selectedId);
+  const f = Dados.getFilaEntry(selectedId);
   if (!f) return;
-  VitalSyncStore.updateFilaEntry(f.id, { status: 'aguardando', guiche: null });
+  // volta a contar a espera desde a entrada original e zera as chamadas
+  Dados.updateFilaEntry(f.id, { status: 'aguardando', guiche: null, chamadoEm: null, chamadas: 0, ultimaChamadaEm: null });
 });
 
 // ---------- REATIVIDADE: qualquer mudança na fila (nesta aba ou em outra) ----------
-VitalSyncStore.onChange((key) => {
+Dados.onChange((key) => {
   if (key !== VitalSyncStore.KEYS.FILA) return;
   renderQueue();
   renderDetails();
 });
 
-// ---------- TEMPO REAL (só atualiza os tempos de espera exibidos) ----------
+// ---------- AVISOS (erro do servidor / sem conexão) E SINCRONIZAÇÃO ----------
+const avisoSync = document.getElementById('avisoSync');
+let avisoErroAte = 0; // um erro fica na tela por alguns segundos, mesmo que a próxima atualização dê certo
+
+window.addEventListener('vitalsync:aviso', (e) => {
+  const { tipo, mensagem } = e.detail;
+  if (tipo === 'ok') {
+    if (Date.now() >= avisoErroAte) avisoSync.hidden = true;
+    return;
+  }
+  avisoSync.textContent = mensagem;
+  avisoSync.classList.toggle('is-rede', tipo === 'rede');
+  avisoSync.hidden = false;
+  if (tipo === 'erro') avisoErroAte = Date.now() + 8000;
+});
+
+window.addEventListener('vitalsync:sync', () => {
+  secondsSinceUpdate = 0;
+  if (!carregou) { carregou = true; renderQueue(); }
+});
+
+// ---------- TEMPO REAL (atualiza espera e "chamando há X min" a cada segundo) ----------
 function tick() {
   secondsSinceUpdate += 1;
   liveUpdated.textContent = secondsSinceUpdate <= 1 ? 'atualizado agora' : `atualizado há ${secondsSinceUpdate}s`;
 
-  const selected = VitalSyncStore.getFilaEntry(selectedId);
+  const selected = Dados.getFilaEntry(selectedId);
   if (selected) {
     document.getElementById('pdEspera').textContent = formatWait(waitSeconds(selected));
+    renderAlertaChamada(selected);
   }
-  queueList.querySelectorAll('.painel-row').forEach(row => {
-    const f = VitalSyncStore.getFilaEntry(row.dataset.id);
-    if (f) {
-      const waitEl = row.querySelector('.p-wait');
-      if (waitEl) waitEl.textContent = formatWait(waitSeconds(f));
+  document.querySelectorAll('#queueList .painel-row, #activeList .painel-row').forEach(row => {
+    const f = Dados.getFilaEntry(row.dataset.id);
+    if (!f) return;
+    const waitEl = row.querySelector('.p-wait');
+    if (waitEl) waitEl.textContent = formatWait(waitSeconds(f));
+    const stEl = row.querySelector('.p-status');
+    if (stEl) {
+      const st = statusCelula(f);
+      stEl.textContent = st.text;
+      stEl.className = `p-status ${st.cls}`;
     }
   });
 }
+
+// ---------- PERMISSÕES POR CARGO ----------
+// Recepção só mexe na fila: não vê nem escreve nada clínico. Técnico lê, mas não escreve.
+// Só médico prescreve e emite atestado. (O servidor também confere; isto só esconde.)
+(function aplicarPermissoes() {
+  const ler = pode('lerProntuario');
+  document.getElementById('cardEvolucao').hidden = !ler;
+  document.getElementById('cardReceitas').hidden = !ler;
+  document.getElementById('cardOrientacoes').hidden = !ler;
+  evolucaoForm.hidden = !pode('evoluir');
+  orientacaoForm.hidden = !pode('evoluir');
+  receitaForm.hidden = !pode('prescrever');
+  const rotuloAtestado = atestadoCheck.closest('label');
+  if (rotuloAtestado) rotuloAtestado.hidden = !pode('prescrever');
+  if (!pode('prescrever')) { atestadoCheck.checked = false; atestadoDiasWrap.hidden = true; }
+  document.getElementById('btnReclassToggle').hidden = !pode('reclassificar');
+})();
 
 // ---------- INIT ----------
 renderQueue();
 renderDetails();
 setInterval(tick, 1000);
+if (Dados.iniciarPainel) Dados.iniciarPainel(); // modo API: começa a atualizar sozinho

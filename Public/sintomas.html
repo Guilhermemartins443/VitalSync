@@ -129,6 +129,14 @@
             </div>
           </div>
 
+          <div class="field" id="avisosField" hidden>
+            <label class="check-pill" style="width:100%; box-sizing:border-box;">
+              <input type="checkbox" id="avisosMsg">
+              Quero receber um aviso por WhatsApp/SMS quando a minha senha for chamada <span id="avisosTel"></span>
+            </label>
+            <p class="sub" style="margin:6px 0 0; font-size:12px;">Enviamos só o número da senha e o local de atendimento, nunca dados de saúde. Você escolhe: se não marcar, não mandamos nada.</p>
+          </div>
+
           <div class="wizard-nav">
             <button type="button" class="btn-ghost" id="backTo1">Voltar</button>
             <button type="submit" class="btn-primary" id="submitBtn">Enviar avaliação</button>
@@ -156,13 +164,23 @@
         <a href="historico.html" class="btn-secondary" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box; margin-top:10px;">Meu histórico</a>
       </div>
 
+      <!-- ERRO AO ENVIAR (modo API) -->
+      <div class="result-pane" id="errorPane">
+        <h2>Não foi possível registrar</h2>
+        <p class="sub" id="errorText">Tente novamente em instantes.</p>
+        <a href="sintomas.html" class="btn-primary" id="errorRetry" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box;">Tentar de novo</a>
+        <a href="entrar.html" class="btn-secondary" id="errorLogin" style="display:none; text-align:center; text-decoration:none; box-sizing:border-box; margin-top:10px;">Entrar com meu CPF</a>
+      </div>
+
       <p class="foot-note" id="footNote">As informações que você descrever aqui serão vistas pela equipe de triagem antes do seu atendimento.</p>
     </div>
   </section>
 
 </div>
 
+<script src="js/config.js"></script>
 <script src="js/store.js"></script>
+<script src="js/fila-api.js"></script>
 <script src="js/sintomas.js"></script>
 </body>
 </html>

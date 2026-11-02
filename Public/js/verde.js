@@ -67,14 +67,15 @@ function animateDemanda() {
 }
 
 // Conexão REAL com o VitalSync: lê a fila (somente leitura) e conta sintomas sensíveis ao ambiente
+// Fila real (API, atualiza sozinha) ou a simulada deste navegador, conforme js/config.js
+const fonteFila = (typeof FilaAPI !== 'undefined' && FilaAPI.ativo) ? FilaAPI
+  : (typeof VitalSyncStore !== 'undefined' ? VitalSyncStore : null);
 function renderFilaStats() {
   const box = document.getElementById('filaStats');
   const foot = document.getElementById('filaFoot');
   let fila = [];
   try {
-    if (typeof VitalSyncStore !== 'undefined') {
-      fila = VitalSyncStore.getFila().filter(f => f.status !== 'finalizado');
-    }
+    if (fonteFila) fila = fonteFila.getFila().filter(f => f.status === 'aguardando');
   } catch (e) { fila = []; }
 
   const conta = (...chaves) => fila.filter(f => (f.sintomas || []).some(s => chaves.includes(s))).length;
@@ -85,11 +86,44 @@ function renderFilaStats() {
     { n: conta('desmaio', 'dor_cabeca'), t: 'tontura ou cefaleia (calor)' },
   ];
   box.innerHTML = stats.map(s => `<div class="v-stat"><b>${s.n}</b><span>${s.t}</span></div>`).join('');
-  foot.textContent = fila.length
-    ? 'Fila lida do VitalSync neste navegador. Atualiza sozinha quando a fila muda.'
-    : 'Nenhum paciente na fila neste navegador. Abra o painel do profissional para carregar exemplos da fila.';
+  const real = fonteFila === (typeof FilaAPI !== 'undefined' ? FilaAPI : null);
+  foot.textContent = real
+    ? (fila.length ? 'Fila da unidade lida do VitalSync. Atualiza sozinha.' : 'Nenhum paciente aguardando na unidade agora.')
+    : (fila.length
+      ? 'Fila lida do VitalSync neste navegador. Atualiza sozinha quando a fila muda.'
+      : 'Nenhum paciente na fila neste navegador. Abra o painel do profissional para carregar exemplos da fila.');
 }
-try { if (typeof VitalSyncStore !== 'undefined') VitalSyncStore.onChange(renderFilaStats); } catch (e) { /* segue */ }
+// ---------- TEMPOS REAIS DA UNIDADE (só com o servidor) ----------
+// Espera = entrada -> 1ª chamada | Até iniciar = chamada -> início | Atendimento = início -> fim
+async function renderTempos() {
+  const card = document.getElementById('temposCard');
+  if (!card || typeof FilaAPI === 'undefined' || !FilaAPI.ativo) return;
+  try {
+    const resp = await Auth.authFetch('/fila/indicadores');
+    if (!resp.ok) return;
+    const d = await resp.json();
+    const m = d.ultimos_30_dias, h = d.ultimas_24h;
+    const min = (v) => (v === null || v === undefined ? '—' : `${String(v).replace('.', ',')} min`);
+    const stats = [
+      { n: min(m.espera_media_min), t: 'espera média (30 dias)' },
+      { n: min(m.ate_iniciar_media_min), t: 'da chamada ao início do atendimento' },
+      { n: min(m.atendimento_media_min), t: 'duração média do atendimento' },
+      { n: h.finalizados, t: 'atendimentos finalizados (24 h)' },
+      { n: h.nao_compareceu, t: 'não compareceram (24 h)' },
+    ];
+    document.getElementById('temposStats').innerHTML =
+      stats.map(s => `<div class="v-stat"><b>${s.n}</b><span>${s.t}</span></div>`).join('');
+    document.getElementById('temposFoot').textContent = m.finalizados
+      ? `Baseado em ${m.finalizados} atendimentos finalizados nos últimos 30 dias. Atualiza sozinho.`
+      : 'Ainda não há atendimentos finalizados: os tempos aparecem conforme a unidade atende.';
+    card.hidden = false;
+  } catch (e) { /* sem conexão: mantém o que já está na tela */ }
+}
+renderTempos();
+setInterval(renderTempos, 60000);
+
+try { if (fonteFila) fonteFila.onChange(renderFilaStats); } catch (e) { /* segue */ }
+try { if (fonteFila && fonteFila.iniciarPainel) fonteFila.iniciarPainel(); } catch (e) { /* segue */ }
 
 // ---------- 2. MAPA DE ALERTAS ----------
 let filtroAtual = 'todos', nivelAtual = 'todos', alertaSel = null, zonaSel = null;

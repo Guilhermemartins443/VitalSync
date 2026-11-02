@@ -1,14 +1,19 @@
 /* =========================================================
    FILA DE ESPERA EM TEMPO REAL — visão do paciente
-   Lê a fila real do VitalSyncStore (js/store.js), compartilhada
-   com o painel do profissional (js/painel.js) via localStorage.
-   Sincroniza entre abas do mesmo navegador: quando o profissional
-   chama/atende/finaliza, esta tela reage sozinha.
+   Modo 'api' (padrão, js/config.js): a fila é a REAL, vinda do back-end
+   (js/fila-api.js) e atualizada sozinha a cada poucos segundos — quando
+   o profissional chama/atende/finaliza em OUTRO aparelho, esta tela reage.
+   Modo 'local' (demonstração): usa o VitalSyncStore (localStorage), que
+   só sincroniza abas do mesmo navegador.
+   O histórico e as receitas continuam vindo do VitalSyncStore (local).
 ========================================================= */
 
 const PRIORITY = VitalSyncStore.PRIORITY;
 
-VitalSyncStore.seedIfEmpty();
+// Fila real (API) ou simulada (localStorage), conforme js/config.js
+const Dados = FilaAPI.ativo ? FilaAPI : VitalSyncStore;
+
+Dados.seedIfEmpty();
 
 // ---------- ELEMENTOS ----------
 const noTicketState = document.getElementById('noTicketState');
@@ -28,6 +33,7 @@ const queueCount = document.getElementById('queueCount');
 const liveUpdated = document.getElementById('liveUpdated');
 const toast = document.getElementById('calledToast');
 const toastBody = document.getElementById('toastBody');
+const toastTitle = document.getElementById('toastTitle');
 const receitasCard = document.getElementById('receitasCard');
 const receitasContent = document.getElementById('receitasContent');
 const historicoCard = document.getElementById('historicoCard');
@@ -36,16 +42,25 @@ const historicoContent = document.getElementById('historicoContent');
 let historicoAbertoId = null;
 
 let secondsSinceUpdate = 0;
+let lastKnownChamadas = 0;     // pra detectar rechamada (mesmo status, nova chamada)
+let lastKnownAhead = null;     // pra detectar "virei o próximo" (quantos estavam na minha frente)
+let minhaAtual = null;         // minha senha ativa (para o cartão de avisos)
+let carregou = !FilaAPI.ativo; // modo API: só "carregou" depois da 1ª resposta do servidor
 let lastKnownStatus = null; // pra detectar a transição "virou minha vez"
 
 // ---------- HELPERS ----------
+// Espera = da ENTRADA do paciente na fila (createdAt) até ser CHAMADO (chamadoEm).
+// Enquanto ainda aguarda, conta até agora; depois de chamado, o tempo congela.
 function waitSeconds(entry) {
-  return Math.max(0, Math.floor((Date.now() - entry.createdAt) / 1000));
+  const fim = entry.chamadoEm || Date.now();
+  return Math.max(0, Math.floor((fim - entry.createdAt) / 1000));
 }
 
 function formatWait(seconds) {
-  const m = Math.floor(seconds / 60);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')} min`;
   if (m === 0) return `${s}s`;
   return `${m} min`;
 }
@@ -53,34 +68,43 @@ function formatWait(seconds) {
 function statusLabel(status) {
   if (status === 'chamando') return { text: 'Chamando', cls: 'status-chamando' };
   if (status === 'atendimento') return { text: 'Em atendimento', cls: 'status-atendimento' };
+  if (status === 'desistencia') return { text: 'Não compareceu', cls: 'status-aguardando' };
   return { text: 'Aguardando', cls: 'status-aguardando' };
 }
 
 function ativos(fila) {
-  return fila.filter(f => f.status !== 'finalizado');
+  return fila.filter(f => f.status !== 'finalizado' && f.status !== 'desistencia');
+}
+
+// só quem ainda está esperando conta como "fila" (quem foi chamado já saiu dela)
+function aguardando(fila) {
+  return fila.filter(f => f.status === 'aguardando');
 }
 
 function sortFila(fila) {
   return [...fila].sort((a, b) => a.level - b.level || a.createdAt - b.createdAt);
 }
 
+// Quantos que ainda aguardam estão na minha frente. `fila` já vem ordenada (prioridade, chegada).
+// No modo API a posição exata vem do servidor (naFrente), sem empate de segundos.
 function countAhead(fila, entry) {
-  return fila.filter(f => f !== entry && (
-    f.level < entry.level || (f.level === entry.level && f.createdAt < entry.createdAt)
-  )).length;
+  if (entry.naFrente !== undefined) return entry.naFrente;
+  const i = fila.findIndex(f => f.id === entry.id);
+  return i >= 0 ? i : 0;
 }
 
 const AVG_MIN_BY_LEVEL = { 0: 5, 1: 12, 2: 18, 3: 24 };
 
 function estimateWaitMinutes(fila, entry) {
-  const ahead = fila.filter(f => f !== entry && (
-    f.level < entry.level || (f.level === entry.level && f.createdAt < entry.createdAt)
-  ));
+  // modo API: o servidor calcula com os atendimentos que de fato aconteceram na unidade
+  if (entry.esperaEstimadaMin !== undefined) return entry.esperaEstimadaMin;
+  const ahead = fila.slice(0, countAhead(fila, entry));
   const minutes = ahead.reduce((sum, f) => sum + (AVG_MIN_BY_LEVEL[f.level] || 15), 0);
   return Math.max(1, Math.round(minutes));
 }
 
-function showToast(msg) {
+function showToast(msg, titulo = 'É a sua vez!') {
+  toastTitle.textContent = titulo;
   toastBody.textContent = msg;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 6000);
@@ -102,12 +126,9 @@ function formatDateTime(ts) {
 }
 
 // ---------- MEUS ATENDIMENTOS (histórico completo do paciente logado) ----------
+// modo API: vem do servidor (sessão do paciente); modo local: do localStorage
 function meusAtendimentos() {
-  const paciente = VitalSyncStore.getPacienteAtual();
-  if (!paciente) return [];
-  return VitalSyncStore.getFila()
-    .filter(f => f.pacienteId === paciente.id)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return Dados.getMeusAtendimentos();
 }
 
 // ---------- RECEITAS, CONDUTAS E CONFIRMAÇÃO DE COMPRA/ADESÃO ----------
@@ -173,14 +194,7 @@ function renderReceitasCard() {
 }
 
 function confirmarCompra(atendimentoId, medId) {
-  const f = VitalSyncStore.getFilaEntry(atendimentoId);
-  if (!f) return;
-  const receitas = f.receitas || [];
-  receitas.forEach(r => {
-    const med = r.medicamentos.find(m => m.id === medId);
-    if (med) { med.comprado = true; med.compradoEm = Date.now(); }
-  });
-  VitalSyncStore.updateFilaEntry(f.id, { receitas });
+  Dados.confirmarCompra(atendimentoId, medId); // grava e a tela se redesenha sozinha
 }
 
 // ---------- HISTÓRICO DE CONSULTAS ANTERIORES ----------
@@ -218,11 +232,11 @@ function renderHistoricoCard() {
 
 // ---------- RENDER ----------
 function render() {
-  const filaTodos = VitalSyncStore.getFila();
-  const fila = sortFila(ativos(filaTodos));
-  const minhaId = VitalSyncStore.getMinhaSenhaId();
-  const minha = fila.find(f => f.id === minhaId);
-  const minhaBruta = filaTodos.find(f => f.id === minhaId); // inclui finalizados
+  const filaTodos = Dados.getFila();
+  const fila = sortFila(aguardando(filaTodos));          // fila de espera
+  const minhaId = Dados.getMinhaSenhaId();
+  const minha = ativos(filaTodos).find(f => f.id === minhaId); // minha senha (aguardando, chamando ou em atendimento)
+  const minhaBruta = filaTodos.find(f => f.id === minhaId); // inclui finalizada / não compareceu
 
   // ---------- resumo por prioridade ----------
   PRIORITY.forEach(p => {
@@ -247,7 +261,9 @@ function render() {
     `;
     queueList.appendChild(row);
   });
-  queueCount.textContent = `${fila.length} ${fila.length === 1 ? 'pessoa' : 'pessoas'} na fila`;
+  queueCount.textContent = carregou
+    ? `${fila.length} ${fila.length === 1 ? 'pessoa' : 'pessoas'} na fila`
+    : 'Carregando a fila...';
 
   // ---------- hero: minha posição ----------
   if (!minha) {
@@ -258,6 +274,10 @@ function render() {
       noTicketTitle.textContent = 'Atendimento finalizado';
       noTicketText.textContent = 'Seu atendimento foi concluído. Obrigado por usar o VitalSync.';
       noTicketBtn.textContent = 'Fazer uma nova avaliação';
+    } else if (minhaBruta && minhaBruta.status === 'desistencia') {
+      noTicketTitle.textContent = 'Você não compareceu à chamada';
+      noTicketText.textContent = 'Sua senha foi encerrada porque você não respondeu quando foi chamado(a). Se ainda precisar de atendimento, faça uma nova avaliação para receber outra senha.';
+      noTicketBtn.textContent = 'Fazer uma nova avaliação';
     } else {
       noTicketTitle.textContent = 'Você ainda não tem uma senha nesta fila';
       noTicketText.textContent = 'Descreva seus sintomas para entrar na fila de atendimento da unidade.';
@@ -265,6 +285,10 @@ function render() {
     }
 
     lastKnownStatus = null;
+    lastKnownChamadas = 0;
+    lastKnownAhead = null;
+    minhaAtual = null;
+    renderAlertas();
     return;
   }
 
@@ -272,17 +296,19 @@ function render() {
   heroCard.hidden = false;
 
   const meta = PRIORITY[minha.level];
-  const position = countAhead(fila, minha) + 1;
-  const waitMin = estimateWaitMinutes(fila, minha);
+  // posição e estimativa só valem enquanto eu ainda aguardo; depois de chamado(a) já saí da fila
+  const naFila = minha.status === 'aguardando';
+  const ahead = countAhead(fila, minha);
+  const chamadas = minha.chamadas || 1;
 
   heroTicket.textContent = minha.senha;
   heroPriority.innerHTML = `<span class="dot ${meta.dot}"></span> ${meta.label}`;
-  heroPosition.textContent = `${position}º`;
-  heroWait.textContent = position === 1 && minha.status !== 'aguardando' ? '—' : `~${waitMin} min`;
-  heroAhead.textContent = countAhead(fila, minha);
+  heroPosition.textContent = naFila ? `${ahead + 1}º` : '—';
+  heroWait.textContent = naFila ? `~${estimateWaitMinutes(fila, minha)} min` : '—';
+  heroAhead.textContent = naFila ? ahead : 0;
 
   if (minha.status === 'chamando') {
-    heroStatus.textContent = 'Você foi chamado(a)!';
+    heroStatus.textContent = chamadas > 1 ? 'Você está sendo chamado(a) novamente!' : 'Você foi chamado(a)!';
     heroStatus.classList.add('calling');
   } else if (minha.status === 'atendimento') {
     heroStatus.textContent = 'Em atendimento';
@@ -293,10 +319,22 @@ function render() {
   }
 
   // ---------- toast: avisa quando o profissional acabou de chamar ----------
-  if (minha.status === 'chamando' && lastKnownStatus !== 'chamando') {
-    showToast(minha.guiche ? `Dirija-se ao ${minha.guiche} para ser atendido(a).` : 'Dirija-se à recepção para ser atendido(a).');
+  // Chamado(a) agora, ou chamado(a) de novo: toast + som/vibração/notificação (se ativados)
+  if (minha.status === 'chamando' && (lastKnownStatus !== 'chamando' || chamadas > lastKnownChamadas)) {
+    const local = minha.guiche ? `Local de atendimento: ${minha.guiche}.` : 'Dirija-se à recepção.';
+    showToast(chamadas > 1 ? `Você está sendo chamado(a) novamente. ${local}` : local);
+    Avisos.chamado({ rechamada: chamadas > 1, senha: minha.senha, local });
+  }
+  // Virei o próximo da fila (só quando a posição MUDA para 1º, não ao abrir a página)
+  if (naFila && ahead === 0 && lastKnownAhead !== null && lastKnownAhead > 0) {
+    showToast('Fique por perto: a sua chamada deve ser em breve.', 'Você é o próximo!');
+    Avisos.proximo({ senha: minha.senha });
   }
   lastKnownStatus = minha.status;
+  lastKnownChamadas = minha.status === 'chamando' ? chamadas : 0;
+  lastKnownAhead = naFila ? ahead : null;
+  minhaAtual = minha;
+  renderAlertas();
 }
 
 function renderPerfil() {
@@ -311,9 +349,60 @@ function tick() {
   render();
 }
 
+// ---------- CARTÃO "AVISOS NESTA TELA" ----------
+const alertasCard = document.getElementById('alertasCard');
+const alertasBtn = document.getElementById('alertasBtn');
+const alertasStatus = document.getElementById('alertasStatus');
+const alertasExtra = document.getElementById('alertasExtra');
+
+function renderAlertas() {
+  if (!minhaAtual) { alertasCard.hidden = true; return; }
+  alertasCard.hidden = false;
+
+  const s = Avisos.suporte;
+  if (!s.som && !s.vibracao && !s.notificacao) {
+    alertasStatus.textContent = 'Este aparelho não permite avisos nesta tela. Fique de olho nela e atento(a) à chamada.';
+    alertasBtn.hidden = true;
+  } else {
+    const estado = Avisos.estado();
+    alertasBtn.hidden = false;
+    alertasBtn.classList.toggle('is-on', estado !== 'desligado');
+    alertasBtn.textContent = estado === 'desligado' ? 'Ativar avisos' : 'Desativar avisos';
+    alertasStatus.textContent = {
+      desligado: 'Ative para ouvir um sinal e sentir a vibração quando for a sua vez.',
+      toque: 'Avisos ativados. Toque em qualquer lugar da tela para liberar o som e mantenha esta página aberta.',
+      ativo: 'Avisos ativados: som e vibração quando você for chamado(a). Mantenha esta página aberta.',
+    }[estado];
+  }
+
+  alertasExtra.hidden = !minhaAtual.avisosAtivos;
+  alertasExtra.textContent = minhaAtual.avisosAtivos
+    ? 'Também vamos avisar por mensagem (WhatsApp/SMS) no telefone cadastrado.'
+    : '';
+}
+
+alertasBtn.addEventListener('click', async () => {
+  if (Avisos.estado() === 'desligado') await Avisos.ativar(); else Avisos.desativar();
+  renderAlertas();
+});
+
 // re-renderiza assim que algo mudar no store (em outra aba ou nesta mesma)
-VitalSyncStore.onChange((key) => {
+Dados.onChange((key) => {
   if (key === VitalSyncStore.KEYS.FILA) { render(); renderPerfil(); }
+});
+
+// ---------- AVISOS (erro / sem conexão) E SINCRONIZAÇÃO ----------
+const avisoSync = document.getElementById('avisoSync');
+window.addEventListener('vitalsync:aviso', (e) => {
+  const { tipo, mensagem } = e.detail;
+  if (tipo === 'ok') { avisoSync.hidden = true; return; }
+  avisoSync.textContent = mensagem;
+  avisoSync.classList.toggle('is-rede', tipo === 'rede');
+  avisoSync.hidden = false;
+});
+window.addEventListener('vitalsync:sync', () => {
+  secondsSinceUpdate = 0;
+  if (!carregou) { carregou = true; render(); }
 });
 
 // ---------- TOPBAR: nome e unidade do paciente logado ----------
@@ -329,3 +418,4 @@ VitalSyncStore.onChange((key) => {
 render();
 renderPerfil();
 setInterval(tick, 1000);
+if (Dados.iniciarPaciente) Dados.iniciarPaciente(); // modo API: começa a atualizar sozinho

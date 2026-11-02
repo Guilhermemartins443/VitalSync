@@ -34,13 +34,33 @@ const cpfErr = document.getElementById('cpfErr');
 const lookupStatus = document.getElementById('lookupStatus');
 let cpfEncontrado = null; // id do paciente no store real, se existir
 
-document.getElementById('sendCode').addEventListener('click', () => {
+const cpfErrOriginal = cpfErr.innerHTML; // "Não encontramos esse CPF. Criar cadastro."
+let pacienteApiId = null;    // id do paciente no banco (modo api)
+const sendBtn = document.getElementById('sendCode');
+
+function erroCpf(mensagem) {
+  // mensagem = null -> volta ao texto padrão ("não encontramos esse CPF")
+  if (mensagem) cpfErr.textContent = mensagem; else cpfErr.innerHTML = cpfErrOriginal;
+  cpfErr.classList.add('show');
+}
+
+function irParaCodigo(telefoneTexto) {
+  lookupStatus.textContent = 'CPF encontrado.';
+  lookupStatus.classList.add('found');
+  document.getElementById('phoneDisplay').textContent = telefoneTexto;
+  goToStep(2);
+  startResendTimer();
+  otpBoxes[0].focus();
+}
+
+sendBtn.addEventListener('click', async () => {
   const cpfDigits = cpfInput.value.replace(/\D/g, '');
   const shell = cpfInput.closest('.input-shell');
 
   if (cpfDigits.length !== 11) {
     shell.classList.add('invalid');
-    cpfErr.classList.add('show');
+    erroCpf(null);
+    cpfErr.textContent = 'Informe um CPF com 11 dígitos.';
     return;
   }
 
@@ -49,6 +69,30 @@ document.getElementById('sendCode').addEventListener('click', () => {
   lookupStatus.innerHTML = '<span class="spinner"></span> Verificando CPF...';
   lookupStatus.classList.remove('found');
 
+  // ---- MODO API: busca o paciente no banco e envia o código de verdade ----
+  if (PacienteAPI.ativo) {
+    sendBtn.disabled = true;
+    try {
+      const pac = await PacienteAPI.buscarPorCpf(cpfDigits);
+      if (!pac) {
+        lookupStatus.textContent = '';
+        shell.classList.add('invalid');
+        erroCpf(null);
+        return;
+      }
+      pacienteApiId = pac.id;
+      const env = await PacienteAPI.solicitarCodigo(pac.id, 'whatsapp');
+      irParaCodigo(pac.telefone_mascarado + (env.canal === 'sms' ? ' (por SMS)' : ' (por WhatsApp)'));
+    } catch (err) {
+      lookupStatus.textContent = '';
+      erroCpf(err.message);
+    } finally {
+      sendBtn.disabled = false;
+    }
+    return;
+  }
+
+  // ---- MODO LOCAL (demonstração): simulação antiga, sem envio ----
   setTimeout(() => {
     // Primeiro procura no store real (paciente cadastrado nesta tela/navegador).
     // Se não achar, cai na simulação fictícia (dígito final par "existe" na base),
@@ -60,17 +104,12 @@ document.getElementById('sendCode').addEventListener('click', () => {
     if (!found) {
       lookupStatus.textContent = '';
       shell.classList.add('invalid');
-      cpfErr.classList.add('show');
+      erroCpf(null);
       return;
     }
 
     cpfEncontrado = pacienteReal ? pacienteReal.id : null;
-    lookupStatus.textContent = 'CPF encontrado.';
-    lookupStatus.classList.add('found');
-    document.getElementById('phoneDisplay').textContent = pacienteReal ? pacienteReal.telefone : '(11) 9****-4321';
-    goToStep(2);
-    startResendTimer();
-    otpBoxes[0].focus();
+    irParaCodigo(pacienteReal ? pacienteReal.telefone : '(11) 9****-4321');
   }, 800);
 });
 
@@ -109,9 +148,30 @@ function startResendTimer() {
   }, 1000);
 }
 
-resendBtn.addEventListener('click', () => {
-  startResendTimer();
+const otpErrOriginal = otpErr.textContent;
+function erroCodigo(mensagem) {
+  otpErr.textContent = mensagem || otpErrOriginal;
+  otpErr.classList.add('show');
+}
+
+resendBtn.addEventListener('click', async () => {
   otpBoxes.forEach(b => (b.value = ''));
+  otpErr.classList.remove('show');
+
+  if (PacienteAPI.ativo) {
+    resendBtn.disabled = true;
+    try {
+      await PacienteAPI.solicitarCodigo(pacienteApiId, 'whatsapp');
+      startResendTimer();
+    } catch (err) {
+      erroCodigo(err.message);
+      resendBtn.disabled = false;
+    }
+    otpBoxes[0].focus();
+    return;
+  }
+
+  startResendTimer();
   otpBoxes[0].focus();
 });
 
@@ -121,24 +181,49 @@ document.getElementById('backTo1').addEventListener('click', () => {
 });
 
 // ---------- envio final ----------
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const code = otpBoxes.map(b => b.value).join('');
-
-  // Simulação: código correto é sempre "123456" neste protótipo
-  if (code.length !== 6 || code !== '123456') {
-    otpErr.classList.add('show');
-    return;
-  }
-  otpErr.classList.remove('show');
+function concluirLogin() {
   clearInterval(timerInterval);
-
-  if (cpfEncontrado) {
-    VitalSyncStore.setPacienteAtual(cpfEncontrado);
-  }
-
   form.style.display = 'none';
   document.querySelector('.steps').style.display = 'none';
   footNote.style.display = 'none';
   successPane.classList.add('active');
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = otpBoxes.map(b => b.value).join('');
+
+  if (code.length !== 6) {
+    erroCodigo('Digite os 6 dígitos do código.');
+    return;
+  }
+
+  // ---- MODO API: o servidor confere o código ----
+  if (PacienteAPI.ativo) {
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const r = await PacienteAPI.verificarCodigo(pacienteApiId, code);
+      otpErr.classList.remove('show');
+      PacienteAPI.entrarNoStore(r.paciente);
+      concluirLogin();
+    } catch (err) {
+      erroCodigo(err.message);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
+  // ---- MODO LOCAL: simulação, o código correto é sempre "123456" ----
+  if (code !== '123456') {
+    erroCodigo(null);
+    return;
+  }
+  otpErr.classList.remove('show');
+
+  if (cpfEncontrado) {
+    VitalSyncStore.setPacienteAtual(cpfEncontrado);
+  }
+  concluirLogin();
 });

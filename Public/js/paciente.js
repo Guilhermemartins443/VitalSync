@@ -77,7 +77,8 @@ document.getElementById('toStep2').addEventListener('click', () => {
   setTimeout(() => {
     // Regra fictícia só para a demonstração: CPFs terminados em dígito par "já existem" na base
     const lastDigit = Number(cpfDigits[cpfDigits.length - 1]);
-    cpfFound = lastDigit % 2 === 0;
+    // No modo api não existe consulta real ao CadSUS: nada de dados fictícios, o paciente preenche.
+    cpfFound = PacienteAPI.ativo ? false : lastDigit % 2 === 0;
 
     if (cpfFound) {
       lookupStatus.textContent = 'Encontramos seu cadastro. Confira os dados.';
@@ -116,10 +117,62 @@ document.getElementById('toStep3').addEventListener('click', () => {
   });
   if (!valid) return;
 
+  if (PacienteAPI.ativo) {
+    enviarCodigoApi();
+    return;
+  }
+
   goToStep(3);
   startResendTimer();
   otpBoxes[0].focus();
 });
+
+// ---------- MODO API: cadastra o paciente no banco e envia o código ----------
+let pacienteApiId = null;
+const sendErr = document.getElementById('sendErr');
+
+async function enviarCodigoApi() {
+  const btn = document.getElementById('toStep3');
+  btn.disabled = true;
+  sendErr.classList.remove('show');
+  try {
+    const cpf = cpfInput.value.replace(/\D/g, '');
+    const unitSelect = document.getElementById('unit');
+    const unitLabel = VitalSyncStore.UNIT_LABELS[unitSelect.value] || '';
+    const unidadeId = unitSelect.value === 'outra' ? null : await PacienteAPI.resolverUnidadeId(unitLabel);
+    const cns = document.getElementById('cns').value.replace(/\D/g, '');
+    const email = document.getElementById('email').value.trim();
+
+    const cad = await PacienteAPI.cadastrar({
+      nome_completo: document.getElementById('fullName').value.trim(),
+      cpf,
+      data_nascimento: document.getElementById('birthDate').value,
+      cns: cns || undefined,
+      telefone: phoneInput.value,
+      email: email || undefined,
+      unidade_referencia_id: unidadeId || undefined,
+    });
+    pacienteApiId = cad.id;
+
+    // CPF que já tinha cadastro: nada é alterado e o código vai para o telefone que já está lá.
+    let destino = phoneInput.value;
+    if (cad.ja_cadastrado) {
+      const existente = await PacienteAPI.buscarPorCpf(cpf);
+      if (existente) destino = existente.telefone_mascarado + ' (telefone que já estava cadastrado)';
+    }
+
+    const env = await PacienteAPI.solicitarCodigo(pacienteApiId, 'whatsapp');
+    document.getElementById('phoneDisplay').textContent = destino + (env.canal === 'sms' ? ' — por SMS' : '');
+    goToStep(3);
+    startResendTimer();
+    otpBoxes[0].focus();
+  } catch (err) {
+    sendErr.textContent = err.message;
+    sendErr.classList.add('show');
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ---------- STEP 3: código OTP ----------
 const otpBoxes = Array.from(document.querySelectorAll('.otp-box'));
@@ -156,9 +209,26 @@ function startResendTimer() {
   }, 1000);
 }
 
-resendBtn.addEventListener('click', () => {
-  startResendTimer();
+const otpErrOriginal = otpErr.textContent;
+resendBtn.addEventListener('click', async () => {
   otpBoxes.forEach(b => (b.value = ''));
+  otpErr.classList.remove('show');
+
+  if (PacienteAPI.ativo) {
+    resendBtn.disabled = true;
+    try {
+      await PacienteAPI.solicitarCodigo(pacienteApiId, 'whatsapp');
+      startResendTimer();
+    } catch (err) {
+      otpErr.textContent = err.message;
+      otpErr.classList.add('show');
+      resendBtn.disabled = false;
+    }
+    otpBoxes[0].focus();
+    return;
+  }
+
+  startResendTimer();
   otpBoxes[0].focus();
 });
 
@@ -168,18 +238,49 @@ document.getElementById('backTo2').addEventListener('click', () => {
 });
 
 // ---------- envio final ----------
-form.addEventListener('submit', (e) => {
+function concluirCadastro() {
+  clearInterval(timerInterval);
+  form.style.display = 'none';
+  document.querySelector('.steps').style.display = 'none';
+  footNote.style.display = 'none';
+  successPane.classList.add('active');
+}
+
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const code = otpBoxes.map(b => b.value).join('');
 
-  // Simulação: código correto é sempre "123456" neste protótipo
-  if (code.length !== 6 || code !== '123456') {
+  if (code.length !== 6) {
+    otpErr.textContent = 'Digite os 6 dígitos do código.';
     otpErr.classList.add('show');
-    otpBoxes.forEach(b => b.closest('.input-shell'));
+    return;
+  }
+
+  // ---- MODO API: o servidor confere o código e devolve o cadastro verdadeiro ----
+  if (PacienteAPI.ativo) {
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const r = await PacienteAPI.verificarCodigo(pacienteApiId, code);
+      otpErr.classList.remove('show');
+      PacienteAPI.entrarNoStore(r.paciente);
+      concluirCadastro();
+    } catch (err) {
+      otpErr.textContent = err.message;
+      otpErr.classList.add('show');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    return;
+  }
+
+  // ---- MODO LOCAL: simulação, o código correto é sempre "123456" ----
+  if (code !== '123456') {
+    otpErr.textContent = otpErrOriginal;
+    otpErr.classList.add('show');
     return;
   }
   otpErr.classList.remove('show');
-  clearInterval(timerInterval);
 
   // ---------- salva o cadastro no store compartilhado ----------
   const unitSelect = document.getElementById('unit');
@@ -197,9 +298,5 @@ form.addEventListener('submit', (e) => {
     unidade_referencia: unitLabel,
   });
   VitalSyncStore.setPacienteAtual(paciente.id);
-
-  form.style.display = 'none';
-  document.querySelector('.steps').style.display = 'none';
-  footNote.style.display = 'none';
-  successPane.classList.add('active');
+  concluirCadastro();
 });

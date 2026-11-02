@@ -46,6 +46,22 @@
       </div>
     </div>
 
+    <div class="aviso-sync" id="avisoSync" role="alert" hidden></div>
+
+    <!-- Local de quem está chamando: é o que o paciente vê na tela e recebe por mensagem -->
+    <div class="guiche-bar">
+      <label for="meuGuiche">Meu guichê / sala</label>
+      <input id="meuGuiche" type="text" maxlength="20" list="guicheSugestoes" placeholder="Ex.: Guichê 2" autocomplete="off">
+      <datalist id="guicheSugestoes">
+        <option value="Guichê 1"></option><option value="Guichê 2"></option>
+        <option value="Guichê 3"></option><option value="Guichê 4"></option>
+        <option value="Triagem"></option>
+        <option value="Consultório 1"></option><option value="Consultório 2"></option>
+        <option value="Consultório 3"></option>
+      </datalist>
+      <span class="guiche-hint">É o local que o paciente verá ao ser chamado. Fica salvo neste navegador.</span>
+    </div>
+
     <!-- ---------- ABAS ---------- -->
     <nav class="tabs" role="tablist" aria-label="Seções do painel">
       <button class="tab-btn active" data-tab="fila" role="tab" aria-selected="true">Fila de atendimento</button>
@@ -90,6 +106,17 @@
             <div class="summary-count" data-count="3">0</div>
             <div class="summary-label">Não urgente</div>
           </div>
+        </div>
+      </section>
+
+      <section class="queue-card" id="activeCard" hidden>
+        <div class="queue-head">
+          <h2>Chamados e em atendimento</h2>
+          <span class="queue-count" id="activeCount">0 pacientes</span>
+        </div>
+
+        <div class="painel-list" id="activeList" aria-live="polite">
+          <!-- gerado via JS -->
         </div>
       </section>
 
@@ -204,8 +231,11 @@
             </dl>
             <div class="detail-actions" id="pdActions">
               <button type="button" class="btn-action" id="btnAvancar">Chamar paciente</button>
+              <button type="button" class="btn-action-ghost" id="btnRechamar" hidden>Rechamar</button>
+              <button type="button" class="btn-action-ghost btn-action-danger" id="btnNaoCompareceu" hidden>Não compareceu</button>
               <button type="button" class="btn-action-ghost" id="btnVoltarFila">Voltar para a fila</button>
             </div>
+            <p class="detail-alert" id="pdAlertaChamada" role="alert" hidden></p>
             <p class="detail-finished" id="pdFinalizado" hidden>Atendimento finalizado. Este paciente saiu da fila.</p>
 
             <div class="reclass-history" id="pdReclassHistory" hidden>
@@ -214,7 +244,7 @@
             </div>
           </div>
 
-          <div class="detail-card detail-card-wide">
+          <div class="detail-card detail-card-wide" id="cardEvolucao">
             <h3>Prontuário rápido · Evolução médica</h3>
 
             <div class="evolucao-list" id="pdEvolucoes">
@@ -233,7 +263,7 @@
           </div>
 
           <!-- ---------- PRESCRIÇÃO DIGITAL ---------- -->
-          <div class="detail-card detail-card-wide">
+          <div class="detail-card detail-card-wide" id="cardReceitas">
             <h3>Prescrição digital de medicamentos</h3>
 
             <div class="receita-list" id="pdReceitas">
@@ -264,7 +294,7 @@
           </div>
 
           <!-- ---------- ORIENTAÇÕES PÓS-CONSULTA E ATESTADO ---------- -->
-          <div class="detail-card detail-card-wide">
+          <div class="detail-card detail-card-wide" id="cardOrientacoes">
             <h3>Orientações pós-consulta e atestado</h3>
 
             <div class="orientacao-list" id="pdOrientacoes">
@@ -312,6 +342,7 @@
 </div>
 
 <script src="js/store.js"></script>
+<script src="js/fila-api.js"></script>
 <script src="js/painel.js"></script>
 <script src="js/equipe.js"></script>
 

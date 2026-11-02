@@ -4,6 +4,9 @@
    atendimentos do paciente identificado em entrar.html/paciente.html.
    Não mostra "evolucoes": são anotações internas do profissional.
 ========================================================= */
+// Fila/histórico reais (API) ou simulados (localStorage), conforme js/config.js
+const Dados = (typeof FilaAPI !== 'undefined' && FilaAPI.ativo) ? FilaAPI : VitalSyncStore;
+
 const PRIORITY = VitalSyncStore.PRIORITY;
 const SINTOMAS = VitalSyncStore.SINTOMAS_CATALOGO;
 const TEMPO_LABEL = VitalSyncStore.TEMPO_INICIO_LABEL;
@@ -40,15 +43,12 @@ function statusInfo(s) {
   if (s === 'finalizado') return { text: 'Finalizado', cls: 'hist-st-fim' };
   if (s === 'atendimento') return { text: 'Em atendimento', cls: 'hist-st-ativo' };
   if (s === 'chamando') return { text: 'Chamando', cls: 'hist-st-ativo' };
+  if (s === 'desistencia') return { text: 'Não compareceu', cls: 'hist-st-fim' };
   return { text: 'Aguardando', cls: 'hist-st-esp' };
 }
 
 function meusAtendimentos() {
-  const p = VitalSyncStore.getPacienteAtual();
-  if (!p) return [];
-  return VitalSyncStore.getFila()
-    .filter((f) => f.pacienteId === p.id)
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return Dados.getMeusAtendimentos();
 }
 
 // ---------- blocos de conduta (receitas + orientações) ----------
@@ -95,7 +95,7 @@ function detalheHtml(a) {
 
 function filtrar(itens) {
   if (filtro === 'finalizado') return itens.filter((a) => a.status === 'finalizado');
-  if (filtro === 'andamento') return itens.filter((a) => a.status !== 'finalizado');
+  if (filtro === 'andamento') return itens.filter((a) => a.status !== 'finalizado' && a.status !== 'desistencia');
   return itens;
 }
 
@@ -154,14 +154,7 @@ lista.addEventListener('click', (e) => {
   const btn = e.target.closest('.btn-confirm-compra');
   if (btn) {
     const row = btn.closest('.med-item');
-    const f = VitalSyncStore.getFilaEntry(row.dataset.atendimento);
-    if (!f) return;
-    const receitas = f.receitas || [];
-    receitas.forEach((r) => {
-      const med = (r.medicamentos || []).find((m) => m.id === row.dataset.med);
-      if (med) { med.comprado = true; med.compradoEm = Date.now(); }
-    });
-    VitalSyncStore.updateFilaEntry(f.id, { receitas }); // dispara onChange -> render
+    Dados.confirmarCompra(row.dataset.atendimento, row.dataset.med); // grava; a tela se redesenha sozinha
   }
 });
 
@@ -183,8 +176,22 @@ document.querySelectorAll('.hist-chip').forEach((chip) => {
 })();
 
 // atualiza sozinho quando o profissional receita/finaliza (outra aba ou esta)
-VitalSyncStore.onChange((key) => {
+Dados.onChange((key) => {
   if (key === VitalSyncStore.KEYS.FILA) render();
 });
 
+// aviso de erro / sessão vencida (modo API)
+const avisoSync = document.getElementById('avisoSync');
+window.addEventListener('vitalsync:aviso', (e) => {
+  if (!avisoSync) return;
+  const { tipo, mensagem } = e.detail;
+  if (tipo === 'ok') { avisoSync.hidden = true; return; }
+  avisoSync.textContent = mensagem;
+  avisoSync.classList.toggle('is-rede', tipo === 'rede');
+  avisoSync.hidden = false;
+});
+
 render();
+
+// modo API: carrega o histórico do servidor e o atualiza a cada ~15 s (receitas novas, status)
+if (Dados.iniciarHistorico) Dados.iniciarHistorico();
