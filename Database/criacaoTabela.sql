@@ -115,8 +115,13 @@ CREATE TABLE fila_atendimento (
     prioridade                SMALLINT NOT NULL CHECK (prioridade BETWEEN 0 AND 3),
     status                    VARCHAR(20) NOT NULL DEFAULT 'aguardando'
                               CHECK (status IN ('aguardando', 'chamando', 'atendimento', 'finalizado', 'desistencia')),
-    guiche                    VARCHAR(10),
-    chamado_em                TIMESTAMP,
+    guiche                    VARCHAR(20),            -- guichê/sala informado por quem chama
+    chamado_em                TIMESTAMP,              -- 1ª chamada (congela o tempo de espera)
+    chamadas                  SMALLINT NOT NULL DEFAULT 0,  -- quantas vezes foi chamado (1ª + rechamadas)
+    ultima_chamada_em         TIMESTAMP,              -- chamada mais recente
+    desistencia_em            TIMESTAMP,              -- quando foi marcado como "não compareceu"
+    avisos_ativos             BOOLEAN NOT NULL DEFAULT FALSE, -- paciente pediu aviso por WhatsApp/SMS (opt-in)
+    aviso_proximo_em          TIMESTAMP,              -- quando mandamos "você é o próximo" (1 vez por espera)
     atendimento_iniciado_em   TIMESTAMP,
     atendimento_finalizado_em TIMESTAMP,
     created_at                TIMESTAMP NOT NULL DEFAULT NOW()
@@ -124,3 +129,79 @@ CREATE TABLE fila_atendimento (
 
 -- índice pensado na query mais comum: "me dê a fila da unidade X, ordenada por prioridade"
 CREATE INDEX idx_fila_unidade_status ON fila_atendimento(unidade_id, status, prioridade, created_at);
+
+-- ---------------------------------------------------------
+-- 9. PRONTUÁRIO (evolução, receitas, orientações/atestado, reclassificações)
+-- Registros clínicos (dado sensível, LGPD): a aplicação só INSERE; não há edição nem exclusão.
+-- Em bancos já existentes use: npm run db:migrar:prontuario
+-- ---------------------------------------------------------
+-- Evolução médica: anotação INTERNA do profissional. Nunca é mostrada ao paciente.
+CREATE TABLE evolucoes_clinicas (
+    id               SERIAL PRIMARY KEY,
+    fila_id          INT NOT NULL REFERENCES fila_atendimento(id) ON DELETE CASCADE,
+    profissional_id  INT REFERENCES profissionais(id),
+    autor            VARCHAR(150) NOT NULL,       -- nome na hora do registro
+    texto            TEXT NOT NULL CHECK (char_length(texto) BETWEEN 1 AND 5000),
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_evolucoes_fila ON evolucoes_clinicas(fila_id, created_at);
+
+-- Receita = um "documento" por profissional dentro do atendimento; os remédios ficam na tabela abaixo.
+CREATE TABLE receitas (
+    id               SERIAL PRIMARY KEY,
+    fila_id          INT NOT NULL REFERENCES fila_atendimento(id) ON DELETE CASCADE,
+    profissional_id  INT REFERENCES profissionais(id),
+    autor            VARCHAR(150) NOT NULL,
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_receitas_fila ON receitas(fila_id, created_at);
+
+CREATE TABLE receita_medicamentos (
+    id          SERIAL PRIMARY KEY,
+    receita_id  INT NOT NULL REFERENCES receitas(id) ON DELETE CASCADE,
+    nome        VARCHAR(120) NOT NULL,
+    dosagem     VARCHAR(80)  NOT NULL,
+    posologia   VARCHAR(120) NOT NULL,
+    duracao     VARCHAR(80)  NOT NULL,
+    comprado    BOOLEAN NOT NULL DEFAULT FALSE,   -- o próprio paciente confirma compra/adesão
+    comprado_em TIMESTAMP,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_receita_med_receita ON receita_medicamentos(receita_id);
+
+-- Registro de lembretes de medicação enviados (o profissional abre WhatsApp/SMS; aqui só o log)
+CREATE TABLE lembretes_medicamento (
+    id              SERIAL PRIMARY KEY,
+    medicamento_id  INT NOT NULL REFERENCES receita_medicamentos(id) ON DELETE CASCADE,
+    profissional_id INT REFERENCES profissionais(id),
+    canal           VARCHAR(10) NOT NULL CHECK (canal IN ('whatsapp', 'sms')),
+    enviado_em      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_lembretes_med ON lembretes_medicamento(medicamento_id);
+
+-- Orientações pós-consulta (e atestado, quando emitido)
+CREATE TABLE orientacoes (
+    id                SERIAL PRIMARY KEY,
+    fila_id           INT NOT NULL REFERENCES fila_atendimento(id) ON DELETE CASCADE,
+    profissional_id   INT REFERENCES profissionais(id),
+    autor             VARCHAR(150) NOT NULL,
+    texto             TEXT NOT NULL CHECK (char_length(texto) BETWEEN 1 AND 5000),
+    atestado          BOOLEAN NOT NULL DEFAULT FALSE,
+    dias_afastamento  SMALLINT CHECK (dias_afastamento BETWEEN 1 AND 365),
+    created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    CHECK (atestado = (dias_afastamento IS NOT NULL))   -- atestado sempre com dias; sem atestado, sem dias
+);
+CREATE INDEX idx_orientacoes_fila ON orientacoes(fila_id, created_at);
+
+-- Histórico de reclassificação manual de risco (o MOTIVO que antes só existia no navegador)
+CREATE TABLE reclassificacoes (
+    id               SERIAL PRIMARY KEY,
+    fila_id          INT NOT NULL REFERENCES fila_atendimento(id) ON DELETE CASCADE,
+    profissional_id  INT REFERENCES profissionais(id),
+    autor            VARCHAR(150) NOT NULL,
+    de_prioridade    SMALLINT NOT NULL CHECK (de_prioridade BETWEEN 0 AND 3),
+    para_prioridade  SMALLINT NOT NULL CHECK (para_prioridade BETWEEN 0 AND 3),
+    motivo           VARCHAR(1000),
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_reclass_fila ON reclassificacoes(fila_id, created_at);
