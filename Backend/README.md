@@ -33,6 +33,74 @@ A conta nasce com `status = 'pendente'` e **não consegue entrar** até um admin
 aprovar em `cadastro.html` (bloco *Solicitações de acesso*). Por aqui nunca se cria `admin`.
 Em banco já existente, rode uma vez `npm run db:migrar` (quem já estava cadastrado continua ativo).
 
+**Fila: rechamada e "não compareceu":** em banco já existente, rode também uma vez
+`npm run db:migrar:chamadas` (adiciona `chamadas`, `ultima_chamada_em` e `desistencia_em` em
+`fila_atendimento`; é seguro rodar mais de uma vez). Bancos novos já nascem com as colunas.
+Regras (em `fila.controller.js`):
+- só quem está `aguardando` conta como "fila" (posição, contadores, fila pública); quem foi
+  chamado ou está em atendimento sai dela e o painel mostra em "Chamados e em atendimento";
+- **tempo de espera** = da entrada até a 1ª chamada (depois congela); calculado no servidor
+  (`espera_segundos`), então não depende do relógio do aparelho. Voltar para a fila zera as
+  chamadas e a espera volta a contar desde a entrada original;
+- **rechamar**: `PATCH /api/fila/:id/status` com `{ "status": "chamando", "rechamar": true }`, até
+  3 chamadas no total (1ª + 2 rechamadas). Sem `rechamar: true`, "chamar" quem já está sendo chamado
+  devolve 409 (evita clique duplo / duas pessoas chamando o mesmo paciente);
+- **não compareceu**: `{ "status": "desistencia" }`, só a partir de `chamando`. O paciente sai da fila
+  e, para voltar, precisa de uma nova avaliação (nova senha);
+- o painel destaca em vermelho quem está "chamando há 5 min ou mais" (`chamando_ha_segundos`).
+
+**Prontuário no banco (evolução, receitas, orientações/atestado, reclassificações):** em banco já existente
+rode uma vez `npm run db:migrar:prontuario` (cria 6 tabelas; seguro rodar de novo).
+- **só INSERE:** não existe rota de edição nem de exclusão; cada registro guarda quem escreveu (`autor` +
+  `profissional_id`) e quando. O autor vem do **login**, nunca do que a tela manda;
+- **permissões por cargo** (`src/utils/permissoes.js`, é só editar a tabela): `recepcao` só mexe na fila
+  (não lê nem escreve nada clínico); `tecnico` lê; `enfermeiro` lê, escreve evolução/orientação e
+  reclassifica; **só `medico` (e `admin`) prescreve e emite atestado**. O painel esconde o que o cargo não
+  pode usar e o servidor devolve 403 de qualquer jeito. Tudo restrito à unidade do profissional;
+- rotas (profissional): `GET /api/fila/:id` (agora traz `prontuario`, ou `null` para cargos sem acesso),
+  `POST /api/fila/:id/evolucoes`, `POST /api/fila/:id/receitas` (soma o remédio à receita aberta do mesmo
+  profissional ou abre outra), `POST /api/fila/:id/medicamentos/:medId/lembretes` (log do lembrete),
+  `POST /api/fila/:id/orientacoes` (`atestado: true` exige `dias_afastamento`),
+  `PATCH /api/fila/:id/prioridade` (`motivo` opcional; só grava histórico se a prioridade mudou);
+- **sessão do paciente:** `POST /api/otp/verificar` agora devolve também `token` (JWT, `tipo: "paciente"`,
+  8 h). Ele só abre `GET /api/pacientes/me/atendimentos` (histórico, receitas e orientações **do próprio
+  paciente**, nunca a evolução médica nem o motivo da reclassificação) e
+  `POST /api/pacientes/me/medicamentos/:medId/comprado` (confirmar compra). Token de paciente **não** abre
+  rota de profissional e vice-versa. Quem já estava logado antes desta versão precisa entrar de novo uma
+  vez para receber o token;
+- **LGPD:** são dados de saúde (sensíveis). Antes de usar com pacientes reais confira base legal e consentimento,
+  política de retenção, acesso por perfil, backup/criptografia do banco e registro de acessos (hoje há o
+  registro de quem **escreveu**, mas não de quem **leu**).
+
+**Tempo estimado e indicadores reais:**
+- a espera estimada mostrada ao paciente (`espera_estimada_min` em `/api/fila/acompanhar`) usa a média real
+  de **ocupação** (da 1ª chamada ao fim do atendimento) dos últimos 30 dias, por prioridade, descontando
+  menos de 30 s e limitando a 120 min. Com poucos dados ela se mistura ao valor padrão
+  (`(n×média + 5×padrão)/(n + 5)`), então começa igual à de antes e "aprende" sozinha. Vários guichês
+  atendendo ao mesmo tempo dividem a fila. Cache de 60 s por unidade (`ESTIMATIVA_CACHE_MS`, 0 desliga);
+- `GET /api/fila/indicadores` (profissional, sem dado pessoal): espera média, da chamada ao início,
+  duração do atendimento, finalizados e não compareceram, em 24 h e 30 dias e por prioridade. Aparece no
+  painel Verde ("Tempos reais de atendimento da unidade").
+
+**Guichê/sala e avisos ao paciente:** em banco já existente rode também uma vez
+`npm run db:migrar:avisos` (guichê passa a aceitar 20 caracteres; adiciona `avisos_ativos` e
+`aviso_proximo_em`; seguro rodar de novo). Regras:
+- **guichê de verdade:** a 1ª chamada **exige** `guiche` (o profissional informa o dele no painel, que
+  fica salvo no navegador). Formato: 1 a 20 caracteres, letras/números/espaço/ponto/º/ª/hífen. Quem
+  rechama pode mandar outro `guiche` se mudou de sala;
+- **aviso por WhatsApp/SMS** (`src/utils/avisos.js`): só para quem marcou a opção ao enviar os sintomas
+  (`avisos_mensagem: true` em `POST /api/sintomas/avaliacoes`; começa **desmarcado**; só vale se o
+  telefone cadastrado for utilizável). Mensagens: "a senha X foi chamada. Local de atendimento: Y",
+  "…está sendo chamada de novo (nª chamada)…" e "você é o próximo da fila (senha X)" (uma vez por
+  espera; zera se o paciente voltar para a fila). No máximo ~4 por espera. O texto leva **só** senha e
+  local, nunca nome ou dados de saúde. Usa o mesmo provedor/variáveis do código de verificação
+  (`OTP_PROVEDOR`, `TWILIO_*`);
+- se o envio falhar, a chamada **continua valendo**: `PATCH .../status` devolve `notificacao: "falhou"`
+  e o painel pede para chamar em voz alta. Ele espera no máximo 4 s pelo provedor.
+- na tela do paciente (`fila.html`) o botão **"Ativar avisos"** liga som, vibração e notificação do
+  navegador. Funcionam com a página aberta (inclusive em segundo plano); com a página fechada só chega a
+  mensagem de WhatsApp/SMS. Alguns aparelhos (iPhone) não vibram pelo navegador.
+
 **Abrir o sistema:** com `npm run dev` rodando, acesse **http://localhost:3000/** — a API também serve
 a pasta `Public/`, então não precisa de Live Server nem de CORS. Se preferir Live Server, ele funciona
 em qualquer porta de `localhost`/`127.0.0.1` em desenvolvimento.
@@ -90,10 +158,12 @@ Backend/
 | GET    | `/api/sintomas/catalogo`    | sintomas.html              | público |
 | POST   | `/api/sintomas/avaliacoes`  | sintomas.html              | público, limitado (10/10 min por IP) |
 | GET    | `/api/fila?unidade_id=`     | fila.html                  | público, limitado. **Sem nome nem id de paciente** |
-| GET    | `/api/fila/:id/posicao`     | fila.html                  | público, limitado |
+| GET    | `/api/fila/acompanhar?id=&unidade_id=` | fila.html       | público, limitado (600/min por IP). Uma chamada devolve a fila de espera + a situação da minha senha (status, guichê, chamadas, posição). A tela atualiza a cada ~3 s |
+| GET    | `/api/fila/:id/posicao`     | (disponível)               | público, limitado. Situação de uma senha |
 | GET    | `/api/fila/painel`          | painel.html                | **profissional** — fila da unidade do token, com nome |
 | GET    | `/api/fila/:id`             | painel.html                | **profissional**, só da própria unidade (inclui CPF e dados clínicos) |
-| PATCH  | `/api/fila/:id/status`      | painel.html                | **profissional**, só da própria unidade |
+| PATCH  | `/api/fila/:id/status`      | painel.html                | **profissional**, só da própria unidade. `status`: `chamando` (+ `rechamar: true` para rechamar), `atendimento`, `finalizado`, `aguardando`, `desistencia` |
+| PATCH  | `/api/fila/:id/prioridade`  | painel.html                | **profissional**, só da própria unidade. `{ prioridade: 0..3 }` (reclassificação; a prioridade calculada na triagem não é alterada) |
 
 Rotas marcadas como **sim** exigem o header:
 
@@ -103,7 +173,17 @@ Authorization: Bearer <token retornado por /api/auth/login>
 
 ## O que muda no front-end (`Public/`)
 
-Hoje `Public/js/store.js` guarda tudo em `localStorage`. Para ligar ao
+> **Já ligado à API (modo `api`, padrão):** a **fila** — `painel.html`, `fila.html`, `sintomas.html` (cria a senha
+> no servidor) e o indicador de fila do `verde.html` — usa `Public/js/fila-api.js`, que tem a mesma "cara" do
+> `VitalSyncStore` e atualiza sozinho (painel ~5 s, paciente ~3 s). Em `js/config.js`, `VITALSYNC_MODO = 'local'`
+> volta a tudo no navegador (demonstração).
+> **Também no banco agora:** evolução médica, receitas, orientações/atestado, o histórico de reclassificação
+> (com o motivo) e o "Meu histórico" do paciente, que vem do servidor com a **sessão do paciente** (veja
+> "Prontuário no banco" abaixo). O que continua só no navegador é o modo `local` de demonstração.
+> Limite atual: o cadastro do paciente ainda não pergunta a unidade; sem unidade de referência a senha é criada
+> na primeira unidade cadastrada.
+
+O restante desta seção descreve o caminho geral de migração. Hoje `Public/js/store.js` guarda tudo em `localStorage`. Para ligar ao
 back-end, troque cada função do `VitalSyncStore` por um `fetch()`
 correspondente, mantendo a mesma assinatura usada pelas outras telas
 (`cadastro.js`, `entrar.js`, `sintomas.js`, `fila.js`, `painel.js`),

@@ -1,6 +1,7 @@
 const { query, pool } = require('../db');
 const { classificarPrioridade } = require('../utils/prioridade');
 const { proximaSenha } = require('../utils/senha');
+const { normalizarTelefone } = require('../utils/enviar');
 
 // GET /api/sintomas/catalogo — alimenta os checkboxes de sintomas.html
 async function listarCatalogo(req, res) {
@@ -33,6 +34,7 @@ async function criarAvaliacao(req, res) {
       intensidade,
       alergias_medicamentos,
       sintomas, // array de chaves, ex.: ['febre', 'dor_cabeca']
+      avisos_mensagem, // true = o paciente pediu aviso por WhatsApp/SMS (opt-in)
     } = req.body;
 
     if (!paciente_id || !unidade_id || !descricao || !tempo_inicio || intensidade === undefined) {
@@ -43,6 +45,13 @@ async function criarAvaliacao(req, res) {
 
     const listaSintomas = Array.isArray(sintomas) ? sintomas : [];
     const prioridade = classificarPrioridade(listaSintomas, Number(intensidade));
+
+    // Aviso por mensagem só vale se o paciente pediu E o telefone cadastrado é utilizável
+    let avisosAtivos = false;
+    if (avisos_mensagem === true) {
+      const { rows: pac } = await client.query('SELECT telefone FROM pacientes WHERE id = $1', [paciente_id]);
+      avisosAtivos = pac.length > 0 && normalizarTelefone(pac[0].telefone) !== null;
+    }
 
     await client.query('BEGIN');
 
@@ -71,10 +80,10 @@ async function criarAvaliacao(req, res) {
     const senha = await proximaSenha(unidade_id, prioridade);
 
     const filaResult = await client.query(
-      `INSERT INTO fila_atendimento (paciente_id, unidade_id, avaliacao_id, senha, prioridade, status)
-       VALUES ($1, $2, $3, $4, $5, 'aguardando')
-       RETURNING id, senha, prioridade, status, created_at`,
-      [paciente_id, unidade_id, avaliacaoId, senha, prioridade]
+      `INSERT INTO fila_atendimento (paciente_id, unidade_id, avaliacao_id, senha, prioridade, status, avisos_ativos)
+       VALUES ($1, $2, $3, $4, $5, 'aguardando', $6)
+       RETURNING id, senha, prioridade, status, avisos_ativos, created_at`,
+      [paciente_id, unidade_id, avaliacaoId, senha, prioridade, avisosAtivos]
     );
 
     await client.query('COMMIT');
