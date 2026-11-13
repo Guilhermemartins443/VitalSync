@@ -7,6 +7,7 @@
 const { query } = require('../db');
 const { MS } = require('../utils/tempo');
 const { lerReceitas, lerOrientacoes } = require('./prontuario.controller');
+const { avisarProximo } = require('../utils/avisos');
 
 // GET /api/pacientes/me/atendimentos  (os 100 mais recentes)
 async function listar(req, res) {
@@ -67,4 +68,49 @@ async function confirmarCompra(req, res) {
   }
 }
 
-module.exports = { listar, confirmarCompra };
+// POST /api/pacientes/me/fila/:id/sair  (o paciente desiste da própria senha)
+// Só da PRÓPRIA senha e só enquanto aguarda ou foi chamado e ainda não entrou: depois que o
+// atendimento começa, quem encerra é o profissional. Repetir o pedido (clique duplo) é inofensivo.
+async function sairDaFila(req, res) {
+  try {
+    if (!/^\d{1,9}$/.test(String(req.params.id))) {
+      return res.status(404).json({ erro: 'Senha não encontrada.' });
+    }
+    const { rows } = await query(
+      'SELECT id, status, unidade_id, desistencia_origem FROM fila_atendimento WHERE id = $1 AND paciente_id = $2',
+      [req.params.id, req.paciente.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ erro: 'Senha não encontrada.' });
+    const f = rows[0];
+
+    if (f.status === 'desistencia' && f.desistencia_origem === 'paciente') {
+      return res.json({ id: f.id, status: f.status }); // já tinha saído
+    }
+    if (f.status === 'atendimento') {
+      return res.status(409).json({ erro: 'O seu atendimento já começou: não dá mais para sair da fila.' });
+    }
+    if (f.status !== 'aguardando' && f.status !== 'chamando') {
+      return res.status(409).json({ erro: 'Esta senha já foi encerrada.' });
+    }
+
+    // WHERE com o status: se o profissional iniciou o atendimento nesse meio-tempo, não sobrescreve
+    const { rows: upd } = await query(
+      `UPDATE fila_atendimento
+          SET status = 'desistencia', desistencia_em = NOW(), desistencia_origem = 'paciente'
+        WHERE id = $1 AND status IN ('aguardando', 'chamando')
+       RETURNING id, senha, status, desistencia_origem`,
+      [f.id]
+    );
+    if (upd.length === 0) {
+      return res.status(409).json({ erro: 'A situação da sua senha mudou. Atualize a tela.' });
+    }
+
+    await avisarProximo(f.unidade_id); // a fila andou: avisa quem virou o próximo
+    res.json(upd[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao sair da fila.' });
+  }
+}
+
+module.exports = { listar, confirmarCompra, sairDaFila };

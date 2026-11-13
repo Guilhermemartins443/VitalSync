@@ -33,6 +33,9 @@ A conta nasce com `status = 'pendente'` e **não consegue entrar** até um admin
 aprovar em `cadastro.html` (bloco *Solicitações de acesso*). Por aqui nunca se cria `admin`.
 Em banco já existente, rode uma vez `npm run db:migrar` (quem já estava cadastrado continua ativo).
 
+**Atalho — banco que já existe, tudo de uma vez:** rode `npm run db:migrar:tudo` (ou cole `Database/migracaoCompleta.sql`
+no SQL Editor do Neon). Ele executa, na ordem, as quatro migrações abaixo (chamadas → avisos → prontuário → senhas) e é seguro rodar mais de uma vez.
+
 **Fila: rechamada e "não compareceu":** em banco já existente, rode também uma vez
 `npm run db:migrar:chamadas` (adiciona `chamadas`, `ultima_chamada_em` e `desistencia_em` em
 `fila_atendimento`; é seguro rodar mais de uma vez). Bancos novos já nascem com as colunas.
@@ -48,6 +51,35 @@ Regras (em `fila.controller.js`):
 - **não compareceu**: `{ "status": "desistencia" }`, só a partir de `chamando`. O paciente sai da fila
   e, para voltar, precisa de uma nova avaliação (nova senha);
 - o painel destaca em vermelho quem está "chamando há 5 min ou mais" (`chamando_ha_segundos`).
+
+**Senhas únicas, encerramento automático e "sair da fila":** em banco já existente rode (depois das migrações
+de chamadas e avisos) `npm run db:migrar:senhas`. **Ela encerra dados antigos que já estavam errados**: senhas
+ativas sem movimento há mais de 12 h viram `expirado`, e quem tinha mais de uma senha ativa fica só com a mais
+adiantada. Regras:
+- **a senha nunca se repete**: o número vem de um contador atômico no banco (`contadores_senha`: unidade + dia +
+  prioridade), dentro da transação que cria a senha. Antes era "contar quantas existem": dois pedidos ao mesmo
+  tempo recebiam a mesma senha, e reclassificar alguém repetia números. Além do contador, o sistema pula
+  qualquer senha que ainda esteja ativa na unidade e há índice único (unidade + dia + senha);
+- **o "dia" das senhas vira às 05:00 no horário de Brasília** (antes virava às 21:00, pelo relógio UTC do banco).
+  Madrugada de UPA não "vira o dia" no meio da fila. Ajustáveis no `.env`: `FUSO_HORARIO`, `HORA_VIRADA_DIA`;
+- **senha esquecida encerra sozinha** (`status = 'expirado'`): sem **nenhuma atividade** (entrada, chamada,
+  início do atendimento) há `HORAS_VALIDADE_SENHA` horas (padrão 12). Quem espera 11 h e é chamado agora não
+  expira. Não precisa de agendador: a varredura roda dentro das rotas da fila, no máximo 1x por minuto por unidade;
+- **uma senha ativa por paciente** (índice único no banco). Pedir outra devolve `409` com a senha que ele já
+  tem (`{ fila: { id, senha, status } }`) e a tela leva até ela, inclusive em outro aparelho: o histórico do
+  servidor revela a senha ativa. Uma senha esquecida de ontem (de qualquer unidade) é encerrada antes da checagem;
+- **o paciente pode sair da fila**: `POST /api/pacientes/me/fila/:id/sair` (sessão do paciente, só da própria
+  senha, só enquanto aguarda ou foi chamado e não entrou; repetir é inofensivo). Fica como `desistencia` com
+  `desistencia_origem = 'paciente'`; "não compareceu" marcado pelo profissional fica `'profissional'`. Os
+  indicadores separam `nao_compareceu`, `desistiram` e `expirados`.
+
+**Código de verificação por WhatsApp:** a tela pede sempre `whatsapp`. Configuração no `.env` (passo a passo
+no `.env.example`): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` e, em produção,
+`TWILIO_WHATSAPP_CODIGO_CONTENT_SID` (modelo de autenticação aprovado, `{{1}}` = código; o WhatsApp só entrega
+mensagem iniciada pela empresa fora da janela de 24 h se for modelo aprovado). `TWILIO_SMS_FROM` é opcional e
+serve de reserva: se o WhatsApp recusar (ex.: número sem WhatsApp), o código sai por SMS e a tela mostra
+"por SMS". Teste primeiro no *WhatsApp Sandbox* do Twilio. Sem nenhuma variável, em desenvolvimento o código
+só aparece no terminal do servidor. Os avisos da fila usam o mesmo provedor, mas ainda sem modelo aprovado.
 
 **Prontuário no banco (evolução, receitas, orientações/atestado, reclassificações):** em banco já existente
 rode uma vez `npm run db:migrar:prontuario` (cria 6 tabelas; seguro rodar de novo).
@@ -163,6 +195,7 @@ Backend/
 | GET    | `/api/fila/painel`          | painel.html                | **profissional** — fila da unidade do token, com nome |
 | GET    | `/api/fila/:id`             | painel.html                | **profissional**, só da própria unidade (inclui CPF e dados clínicos) |
 | PATCH  | `/api/fila/:id/status`      | painel.html                | **profissional**, só da própria unidade. `status`: `chamando` (+ `rechamar: true` para rechamar), `atendimento`, `finalizado`, `aguardando`, `desistencia` |
+| POST   | `/api/pacientes/me/fila/:id/sair` | fila.html (paciente) | **sessão do paciente**: desiste da própria senha |
 | PATCH  | `/api/fila/:id/prioridade`  | painel.html                | **profissional**, só da própria unidade. `{ prioridade: 0..3 }` (reclassificação; a prioridade calculada na triagem não é alterada) |
 
 Rotas marcadas como **sim** exigem o header:

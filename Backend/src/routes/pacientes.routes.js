@@ -16,6 +16,7 @@ router.get('/cpf/:cpf', limitar({ max: 10, janelaMs: 10 * 60 * 1000 }), controll
 const limiteMe = limitar({ max: 120, janelaMs: 60 * 1000 });
 router.get('/me/atendimentos', limiteMe, autenticarPaciente, atendimentos.listar);
 router.post('/me/medicamentos/:medId/comprado', limiteMe, autenticarPaciente, atendimentos.confirmarCompra);
+router.post('/me/fila/:id/sair', limiteMe, autenticarPaciente, atendimentos.sairDaFila);
 
 // Protegida: dado completo (nome, CPF, CNS, telefone, e-mail) só para profissional
 // autenticado e apenas de pacientes ligados à unidade dele.

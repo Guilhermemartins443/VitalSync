@@ -22,6 +22,7 @@ function limitar({ max, janelaMs, chave, mensagem } = {}) {
   faxina.unref();
 
   return (req, res, next) => {
+    if (process.env.NODE_ENV === 'test') return next(); // testes automáticos disparam muitos pedidos do mesmo IP
     const k = chave ? chave(req) : req.ip;
     const agora = Date.now();
     let reg = registros.get(k);

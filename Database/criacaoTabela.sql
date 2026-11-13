@@ -111,15 +111,18 @@ CREATE TABLE fila_atendimento (
     paciente_id               INT NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
     unidade_id                INT NOT NULL REFERENCES unidades_saude(id),
     avaliacao_id              INT REFERENCES avaliacoes_sintomas(id),
-    senha                     VARCHAR(10) NOT NULL,   -- ex: 'P003', único por unidade e por dia
+    senha                     VARCHAR(10) NOT NULL,   -- ex: 'P003'; único por unidade e por dia (contadores_senha)
     prioridade                SMALLINT NOT NULL CHECK (prioridade BETWEEN 0 AND 3),
     status                    VARCHAR(20) NOT NULL DEFAULT 'aguardando'
-                              CHECK (status IN ('aguardando', 'chamando', 'atendimento', 'finalizado', 'desistencia')),
+                              CHECK (status IN ('aguardando', 'chamando', 'atendimento', 'finalizado', 'desistencia', 'expirado')),
     guiche                    VARCHAR(20),            -- guichê/sala informado por quem chama
     chamado_em                TIMESTAMP,              -- 1ª chamada (congela o tempo de espera)
     chamadas                  SMALLINT NOT NULL DEFAULT 0,  -- quantas vezes foi chamado (1ª + rechamadas)
     ultima_chamada_em         TIMESTAMP,              -- chamada mais recente
-    desistencia_em            TIMESTAMP,              -- quando foi marcado como "não compareceu"
+    desistencia_em            TIMESTAMP,              -- quando saiu da fila ("não compareceu" ou o próprio paciente)
+    desistencia_origem        VARCHAR(12) CHECK (desistencia_origem IN ('paciente', 'profissional')),
+    expirado_em               TIMESTAMP,              -- quando foi encerrada sozinha por falta de atividade
+    dia_atendimento           DATE,                   -- "dia" da senha (vira às 05:00 de Brasília, ver utils/expediente.js)
     avisos_ativos             BOOLEAN NOT NULL DEFAULT FALSE, -- paciente pediu aviso por WhatsApp/SMS (opt-in)
     aviso_proximo_em          TIMESTAMP,              -- quando mandamos "você é o próximo" (1 vez por espera)
     atendimento_iniciado_em   TIMESTAMP,
@@ -129,6 +132,22 @@ CREATE TABLE fila_atendimento (
 
 -- índice pensado na query mais comum: "me dê a fila da unidade X, ordenada por prioridade"
 CREATE INDEX idx_fila_unidade_status ON fila_atendimento(unidade_id, status, prioridade, created_at);
+CREATE INDEX idx_fila_paciente_status ON fila_atendimento(paciente_id, status);
+-- só UMA senha ativa por paciente, garantido pelo banco
+CREATE UNIQUE INDEX uniq_fila_paciente_ativa ON fila_atendimento(paciente_id)
+    WHERE status IN ('aguardando', 'chamando', 'atendimento');
+-- a mesma senha nunca se repete na mesma unidade e dia
+CREATE UNIQUE INDEX uniq_fila_senha_dia ON fila_atendimento(unidade_id, dia_atendimento, senha);
+
+-- Contador de senhas: um número por unidade + dia + prioridade, incrementado de forma atômica
+-- (duas pessoas ao mesmo tempo nunca recebem a mesma senha).
+CREATE TABLE contadores_senha (
+    unidade_id  INT NOT NULL REFERENCES unidades_saude(id) ON DELETE CASCADE,
+    dia         DATE NOT NULL,
+    prioridade  SMALLINT NOT NULL CHECK (prioridade BETWEEN 0 AND 3),
+    ultimo      INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (unidade_id, dia, prioridade)
+);
 
 -- ---------------------------------------------------------
 -- 9. PRONTUÁRIO (evolução, receitas, orientações/atestado, reclassificações)

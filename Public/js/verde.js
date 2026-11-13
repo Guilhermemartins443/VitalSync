@@ -110,6 +110,8 @@ async function renderTempos() {
       { n: min(m.atendimento_media_min), t: 'duração média do atendimento' },
       { n: h.finalizados, t: 'atendimentos finalizados (24 h)' },
       { n: h.nao_compareceu, t: 'não compareceram (24 h)' },
+      { n: h.desistiram, t: 'saíram da fila (24 h)' },
+      { n: h.expirados, t: 'encerradas por falta de movimento (24 h)' },
     ];
     document.getElementById('temposStats').innerHTML =
       stats.map(s => `<div class="v-stat"><b>${s.n}</b><span>${s.t}</span></div>`).join('');

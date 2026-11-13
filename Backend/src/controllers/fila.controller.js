@@ -1,6 +1,7 @@
 const { query, pool } = require('../db');
 const { avisarChamada, avisarProximo } = require('../utils/avisos');
 const { estimarEspera } = require('../utils/estimativa');
+const { encerrarSenhasVencidas } = require('../utils/expediente');
 const { pode } = require('../utils/permissoes');
 const { lerProntuario } = require('./prontuario.controller');
 
@@ -40,6 +41,8 @@ async function listar(req, res) {
     const { unidade_id } = req.query;
     if (!ehId(unidade_id)) return res.status(400).json({ erro: 'Informe unidade_id válido.' });
 
+    await encerrarSenhasVencidas(Number(unidade_id)); // senha esquecida não fica na fila para sempre
+
     const { rows } = await query(
       `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.created_at,
               f.chamado_em, f.atendimento_iniciado_em, f.atendimento_finalizado_em,
@@ -67,25 +70,30 @@ async function acompanhar(req, res) {
   try {
     const { id, unidade_id } = req.query;
 
-    let minha = null;
-    let unidade = null;
-    if (id !== undefined && ehId(id)) {
+    const lerMinha = async () => {
       const { rows } = await query(
         `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.chamadas, f.unidade_id,
-                f.avisos_ativos, ${ESPERA_SQL}, ${CHAMANDO_HA_SQL}
+                f.avisos_ativos, f.desistencia_origem, ${ESPERA_SQL}, ${CHAMANDO_HA_SQL}
            FROM fila_atendimento f
           WHERE f.id = $1`,
         [id]
       );
-      if (rows.length) {
-        minha = rows[0];
-        unidade = minha.unidade_id;
-      }
+      return rows[0] || null;
+    };
+
+    let minha = null;
+    let unidade = null;
+    if (id !== undefined && ehId(id)) {
+      minha = await lerMinha();
+      if (minha) unidade = minha.unidade_id;
     }
     if (unidade === null) {
       if (!ehId(unidade_id)) return res.status(400).json({ erro: 'Informe unidade_id ou id válido.' });
       unidade = Number(unidade_id);
     }
+
+    // senhas esquecidas (sem atividade há horas) são encerradas; se a minha foi uma delas, relê
+    if ((await encerrarSenhasVencidas(unidade)) > 0 && minha) minha = await lerMinha();
 
     const { rows: fila } = await query(
       `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, ${ESPERA_SQL}
@@ -127,6 +135,8 @@ async function acompanhar(req, res) {
 // atendimento (a tela separa em dois blocos). CPF e demais dados só em GET /api/fila/:id.
 async function listarPainel(req, res) {
   try {
+    await encerrarSenhasVencidas(req.profissional.unidade_id); // some da tela o que ficou de ontem
+
     const { rows } = await query(
       `SELECT f.id, f.senha, f.prioridade, f.status, f.guiche, f.chamadas, f.created_at,
               f.chamado_em, f.atendimento_iniciado_em, f.atendimento_finalizado_em,
@@ -305,7 +315,7 @@ async function atualizarStatus(req, res) {
     } else if (novoStatus === 'finalizado') {
       sets.push('atendimento_finalizado_em = NOW()');
     } else if (novoStatus === 'desistencia') {
-      sets.push('desistencia_em = NOW()');
+      sets.push('desistencia_em = NOW()', "desistencia_origem = 'profissional'");
     } else if (novoStatus === 'aguardando') {
       // volta pra fila: a espera volta a contar desde a entrada original (created_at)
       sets.push('guiche = NULL', 'chamado_em = NULL', 'ultima_chamada_em = NULL', 'chamadas = 0',
@@ -413,7 +423,9 @@ async function reclassificar(req, res) {
 const MEDIAS_SQL = `
   COUNT(*)::int AS total,
   COUNT(*) FILTER (WHERE status = 'finalizado')::int AS finalizados,
-  COUNT(*) FILTER (WHERE status = 'desistencia')::int AS nao_compareceu,
+  COUNT(*) FILTER (WHERE status = 'desistencia' AND desistencia_origem IS DISTINCT FROM 'paciente')::int AS nao_compareceu,
+  COUNT(*) FILTER (WHERE status = 'desistencia' AND desistencia_origem = 'paciente')::int AS desistiram,
+  COUNT(*) FILTER (WHERE status = 'expirado')::int AS expirados,
   AVG(LEAST(EXTRACT(EPOCH FROM (chamado_em - created_at)) / 60, 480))
       FILTER (WHERE chamado_em IS NOT NULL)::float8 AS espera_media_min,
   AVG(LEAST(EXTRACT(EPOCH FROM (atendimento_iniciado_em - chamado_em)) / 60, 120))
@@ -425,6 +437,7 @@ const MEDIAS_SQL = `
 const arredondar = (v) => (v === null || v === undefined ? null : Math.round(v * 10) / 10);
 const formatarJanela = (r) => ({
   total: r.total, finalizados: r.finalizados, nao_compareceu: r.nao_compareceu,
+  desistiram: r.desistiram, expirados: r.expirados,
   espera_media_min: arredondar(r.espera_media_min),
   ate_iniciar_media_min: arredondar(r.ate_iniciar_media_min),
   atendimento_media_min: arredondar(r.atendimento_media_min),

@@ -68,12 +68,13 @@ function formatWait(seconds) {
 function statusLabel(status) {
   if (status === 'chamando') return { text: 'Chamando', cls: 'status-chamando' };
   if (status === 'atendimento') return { text: 'Em atendimento', cls: 'status-atendimento' };
-  if (status === 'desistencia') return { text: 'Não compareceu', cls: 'status-aguardando' };
+  if (status === 'desistencia') return { text: 'Saiu da fila', cls: 'status-aguardando' };
+  if (status === 'expirado') return { text: 'Encerrada', cls: 'status-aguardando' };
   return { text: 'Aguardando', cls: 'status-aguardando' };
 }
 
 function ativos(fila) {
-  return fila.filter(f => f.status !== 'finalizado' && f.status !== 'desistencia');
+  return fila.filter(f => f.status !== 'finalizado' && f.status !== 'desistencia' && f.status !== 'expirado');
 }
 
 // só quem ainda está esperando conta como "fila" (quem foi chamado já saiu dela)
@@ -274,9 +275,17 @@ function render() {
       noTicketTitle.textContent = 'Atendimento finalizado';
       noTicketText.textContent = 'Seu atendimento foi concluído. Obrigado por usar o VitalSync.';
       noTicketBtn.textContent = 'Fazer uma nova avaliação';
+    } else if (minhaBruta && minhaBruta.status === 'desistencia' && minhaBruta.desistenciaOrigem === 'paciente') {
+      noTicketTitle.textContent = 'Você saiu da fila';
+      noTicketText.textContent = 'Sua senha foi cancelada. Se ainda precisar de atendimento, faça uma nova avaliação para receber outra senha.';
+      noTicketBtn.textContent = 'Fazer uma nova avaliação';
     } else if (minhaBruta && minhaBruta.status === 'desistencia') {
       noTicketTitle.textContent = 'Você não compareceu à chamada';
       noTicketText.textContent = 'Sua senha foi encerrada porque você não respondeu quando foi chamado(a). Se ainda precisar de atendimento, faça uma nova avaliação para receber outra senha.';
+      noTicketBtn.textContent = 'Fazer uma nova avaliação';
+    } else if (minhaBruta && minhaBruta.status === 'expirado') {
+      noTicketTitle.textContent = 'Sua senha foi encerrada';
+      noTicketText.textContent = 'Ela ficou muito tempo sem movimento e foi encerrada automaticamente. Se ainda precisar de atendimento, faça uma nova avaliação para receber outra senha.';
       noTicketBtn.textContent = 'Fazer uma nova avaliação';
     } else {
       noTicketTitle.textContent = 'Você ainda não tem uma senha nesta fila';
@@ -334,6 +343,8 @@ function render() {
   lastKnownChamadas = minha.status === 'chamando' ? chamadas : 0;
   lastKnownAhead = naFila ? ahead : null;
   minhaAtual = minha;
+  // só dá para desistir enquanto aguarda ou foi chamado e ainda não entrou
+  btnSairFila.hidden = !(minha.status === 'aguardando' || minha.status === 'chamando');
   renderAlertas();
 }
 
@@ -348,6 +359,23 @@ function tick() {
   liveUpdated.textContent = secondsSinceUpdate <= 1 ? 'atualizado agora' : `atualizado há ${secondsSinceUpdate}s`;
   render();
 }
+
+// ---------- SAIR DA FILA ----------
+const btnSairFila = document.getElementById('btnSairFila');
+btnSairFila.addEventListener('click', async () => {
+  if (!minhaAtual) return;
+  const msg = minhaAtual.status === 'chamando'
+    ? `Sair da fila? A senha ${minhaAtual.senha} será cancelada e você precisará de uma nova para ser atendido(a).`
+    : `Sair da fila? Você perde a sua vez (senha ${minhaAtual.senha}) e precisará de uma nova senha.`;
+  if (!window.confirm(msg)) return;
+  btnSairFila.disabled = true;
+  try {
+    await Dados.sairDaFila(minhaAtual.id);
+  } finally {
+    btnSairFila.disabled = false;
+  }
+  render();
+});
 
 // ---------- CARTÃO "AVISOS NESTA TELA" ----------
 const alertasCard = document.getElementById('alertasCard');

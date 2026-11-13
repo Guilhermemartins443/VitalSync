@@ -63,6 +63,7 @@ const FilaAPI = (function () {
     if (!resp.ok) {
       const err = new Error((dados && dados.erro) || 'Algo deu errado. Tente novamente.');
       err.status = resp.status;
+      err.dados = dados; // ex.: o 409 de "você já tem uma senha" devolve { fila: { id, senha, status } }
       throw err;
     }
     return dados;
@@ -144,6 +145,7 @@ const FilaAPI = (function () {
       pacienteId: r.paciente_id != null ? String(r.paciente_id) : null,
       sintomas: r.sintomas || undefined,   // só na lista do painel (usado pelo painel Verde)
       avisosAtivos: r.avisos_ativos === true, // o paciente pediu aviso por WhatsApp/SMS
+      desistenciaOrigem: r.desistencia_origem || null, // 'paciente' (saiu) ou 'profissional' (não compareceu)
       // posição calculada pelo servidor (ordem exata, sem empate de segundos)
       posicao: r.posicao != null ? r.posicao : undefined,
       naFrente: r.pessoas_na_frente != null ? r.pessoas_na_frente : undefined,
@@ -418,6 +420,15 @@ const FilaAPI = (function () {
       sessaoPendente = false;
       const nova = JSON.stringify(lista);
       meus = lista.map((a) => normalizarAtendimento(a, paciente.id));
+
+      // Só pode haver UMA senha ativa por paciente. Se existe e este aparelho não sabe qual é (entrou
+      // por outro celular, limpou o navegador...), passa a acompanhá-la.
+      const ativa = meus.find((a) => ['aguardando', 'chamando', 'atendimento'].includes(a.status));
+      if (ativa && ativa.id !== getMinhaSenhaId()) {
+        VitalSyncStore.setMinhaSenhaId(ativa.id);
+        assinatura = ''; // força a fila a ser relida com a senha certa
+        buscarPaciente(true).catch(() => {});
+      }
       if (nova !== assinaturaMeus) {
         assinaturaMeus = nova;
         emitirMudanca();
@@ -425,6 +436,29 @@ const FilaAPI = (function () {
     } catch (e) {
       if (e.sessao) sessaoPendente = true;
       avisar(e.rede ? 'rede' : 'erro', e.message);
+    }
+  }
+
+  // Situação de UMA senha (pública, sem login): { status, senha, ... } ou null
+  async function consultarSenha(id) {
+    try {
+      const r = await pedirPublico('GET', `/fila/acompanhar?id=${encodeURIComponent(id)}`);
+      return r.minha;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // O paciente desiste da própria senha. Devolve Promise<boolean>.
+  async function sairDaFila(id) {
+    try {
+      await pedirPaciente('POST', `/pacientes/me/fila/${enc(id)}/sair`);
+      await buscarPaciente(true).catch(() => {});
+      await carregarMeusAtendimentos();
+      return true;
+    } catch (e) {
+      avisar(e.rede ? 'rede' : 'erro', e.message);
+      return false;
     }
   }
 
@@ -561,7 +595,7 @@ const FilaAPI = (function () {
     getPacienteAtual: VitalSyncStore.getPacienteAtual,
     getMinhaSenhaId,
     setMinhaSenhaId: VitalSyncStore.setMinhaSenhaId,
-    getMeusAtendimentos, carregarMeusAtendimentos, confirmarCompra,
+    getMeusAtendimentos, carregarMeusAtendimentos, confirmarCompra, sairDaFila, consultarSenha,
     // específicos da API
     iniciarPainel, iniciarPaciente, iniciarHistorico, carregarDetalhe,
     listarUnidades, resolverUnidadeId, criarAvaliacao,

@@ -43,7 +43,8 @@ function statusInfo(s) {
   if (s === 'finalizado') return { text: 'Finalizado', cls: 'hist-st-fim' };
   if (s === 'atendimento') return { text: 'Em atendimento', cls: 'hist-st-ativo' };
   if (s === 'chamando') return { text: 'Chamando', cls: 'hist-st-ativo' };
-  if (s === 'desistencia') return { text: 'Não compareceu', cls: 'hist-st-fim' };
+  if (s === 'desistencia') return { text: 'Saiu da fila', cls: 'hist-st-fim' };
+  if (s === 'expirado') return { text: 'Encerrada sem atendimento', cls: 'hist-st-fim' };
   return { text: 'Aguardando', cls: 'hist-st-esp' };
 }
 
@@ -95,7 +96,7 @@ function detalheHtml(a) {
 
 function filtrar(itens) {
   if (filtro === 'finalizado') return itens.filter((a) => a.status === 'finalizado');
-  if (filtro === 'andamento') return itens.filter((a) => a.status !== 'finalizado' && a.status !== 'desistencia');
+  if (filtro === 'andamento') return itens.filter((a) => ['aguardando', 'chamando', 'atendimento'].includes(a.status));
   return itens;
 }
 

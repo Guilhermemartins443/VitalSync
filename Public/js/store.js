@@ -246,6 +246,14 @@ const VitalSyncStore = (function () {
     return Promise.resolve(true);
   }
 
+  // O paciente desiste da própria senha (modo local). Só enquanto aguarda ou foi chamado.
+  function sairDaFila(id) {
+    const f = getFilaEntry(id);
+    if (!f || (f.status !== 'aguardando' && f.status !== 'chamando')) return Promise.resolve(false);
+    updateFilaEntry(f.id, { status: 'desistencia', desistenciaOrigem: 'paciente', desistenciaEm: Date.now() });
+    return Promise.resolve(true);
+  }
+
   function setMinhaSenhaId(id) {
     try { localStorage.setItem(KEYS.MINHA_SENHA_ID, id); } catch (err) { /* segue sem persistir */ }
   }
@@ -325,7 +333,7 @@ const VitalSyncStore = (function () {
     setPacienteToken, getPacienteToken,
     getFila, addToFila, updateFilaEntry, getFilaEntry,
     adicionarEvolucao, adicionarMedicamento, registrarLembrete, adicionarOrientacao, reclassificar,
-    getMeusAtendimentos, confirmarCompra, carregarMeusAtendimentos() { return Promise.resolve(); },
+    getMeusAtendimentos, confirmarCompra, sairDaFila, carregarMeusAtendimentos() { return Promise.resolve(); },
     setMinhaSenhaId, getMinhaSenhaId,
     seedIfEmpty,
     onChange,

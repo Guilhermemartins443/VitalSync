@@ -12,6 +12,8 @@
     "db:migrar:chamadas": "node src/db/executarSql.js ../Database/migracaoChamadas.sql",
     "db:migrar:avisos": "node src/db/executarSql.js ../Database/migracaoAvisos.sql",
     "db:migrar:prontuario": "node src/db/executarSql.js ../Database/migracaoProntuario.sql",
+    "db:migrar:senhas": "node src/db/executarSql.js ../Database/migracaoSenhas.sql",
+    "db:migrar:tudo": "node src/db/executarSql.js ../Database/migracaoCompleta.sql",
     "db:seed": "node src/db/executarSql.js ../Database/insertScript.sql",
     "admin:criar": "node src/db/criarAdmin.js"
   },

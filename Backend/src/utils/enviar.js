@@ -1,5 +1,5 @@
 // =========================================================
-// Envio REAL do código de verificação (OTP) por SMS ou WhatsApp.
+// Envio REAL do código de verificação (OTP) e dos avisos da fila, por WhatsApp ou SMS.
 //
 // Provedor escolhido por OTP_PROVEDOR:
 //   'twilio'  -> envia de verdade (precisa das variáveis TWILIO_* abaixo)
@@ -8,8 +8,15 @@
 //
 // Variáveis do Twilio:
 //   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
-//   TWILIO_SMS_FROM        número/remetente de SMS, ex.: +15551234567
-//   TWILIO_WHATSAPP_FROM   remetente de WhatsApp, ex.: +14155238886 (sandbox) — opcional
+//   TWILIO_WHATSAPP_FROM   remetente de WhatsApp, ex.: +14155238886 (sandbox) ou o seu número aprovado
+//   TWILIO_WHATSAPP_CODIGO_CONTENT_SID
+//                          (recomendado em produção) modelo de mensagem APROVADO para o código, onde
+//                          {{1}} é o código. O WhatsApp só entrega mensagem iniciada pela empresa
+//                          (como o código) fora da janela de 24 h se for um modelo aprovado.
+//   TWILIO_SMS_FROM        número/remetente de SMS, ex.: +15551234567 (opcional)
+//
+// Ordem de tentativa: o canal pedido primeiro (a tela pede WhatsApp); se falhar, tenta o outro canal
+// SE ele estiver configurado (ex.: o paciente não tem WhatsApp -> chega por SMS).
 //
 // Para trocar de provedor (Zenvia, Meta WhatsApp Cloud API...), basta criar outra
 // função como enviarPorTwilio e escolher nela pelo OTP_PROVEDOR.
@@ -35,42 +42,73 @@ function provedorAtivo() {
   return process.env.TWILIO_ACCOUNT_SID ? 'twilio' : 'console';
 }
 
-async function enviarPorTwilio({ para, canal, texto }) {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  if (!sid || !token) throw erro('SEM_PROVEDOR', 'Twilio sem TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN.');
+// endereço da API do Twilio (só muda em testes automáticos, que usam um Twilio de mentira)
+const TWILIO_BASE = () => process.env.TWILIO_API_BASE || 'https://api.twilio.com';
 
-  // WhatsApp sem remetente configurado cai para SMS; sem nenhum dos dois, não há como enviar.
-  let canalReal = canal;
-  if (canalReal === 'whatsapp' && !process.env.TWILIO_WHATSAPP_FROM) canalReal = 'sms';
-  if (canalReal === 'sms' && !process.env.TWILIO_SMS_FROM) {
-    if (process.env.TWILIO_WHATSAPP_FROM) canalReal = 'whatsapp';
-    else throw erro('SEM_PROVEDOR', 'Nenhum remetente configurado (TWILIO_SMS_FROM / TWILIO_WHATSAPP_FROM).');
+// Um envio, por UM canal. Lança erro FALHA_ENVIO (com .twilioCode e .status) se o provedor recusar.
+async function enviarUmCanal({ canal, para, texto, codigo, sid, token }) {
+  const params = canal === 'whatsapp'
+    ? { To: `whatsapp:${para}`, From: `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}` }
+    : { To: para, From: process.env.TWILIO_SMS_FROM };
+
+  // Código por WhatsApp com modelo aprovado (produção): o Twilio manda o texto do modelo e só troca {{1}}
+  const modelo = process.env.TWILIO_WHATSAPP_CODIGO_CONTENT_SID;
+  if (canal === 'whatsapp' && modelo && codigo) {
+    params.ContentSid = modelo;
+    params.ContentVariables = JSON.stringify({ 1: String(codigo) });
+  } else {
+    params.Body = texto;
   }
 
-  const origem = canalReal === 'whatsapp'
-    ? `whatsapp:${process.env.TWILIO_WHATSAPP_FROM}`
-    : process.env.TWILIO_SMS_FROM;
-  const destino = canalReal === 'whatsapp' ? `whatsapp:${para}` : para;
-
-  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+  const resp = await fetch(`${TWILIO_BASE()}/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {
       Authorization: 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'),
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: new URLSearchParams({ To: destino, From: origem, Body: texto }).toString(),
+    body: new URLSearchParams(params).toString(),
     signal: AbortSignal.timeout(8000),
   });
 
   if (!resp.ok) {
     let twilioCode = '';
     try { twilioCode = (await resp.json()).code || ''; } catch (_) { /* corpo não-JSON */ }
-    // log sem telefone nem código: só o status e o código de erro do Twilio
-    console.error(`Falha no envio (Twilio): HTTP ${resp.status} ${twilioCode}`.trim());
-    throw erro('FALHA_ENVIO', 'O provedor recusou o envio.');
+    // log sem telefone nem código: só o canal, o status e o código de erro do Twilio
+    console.error(`Falha no envio (Twilio/${canal}): HTTP ${resp.status} ${twilioCode}`.trim());
+    const e = erro('FALHA_ENVIO', 'O provedor recusou o envio.');
+    e.twilioCode = twilioCode;
+    e.status = resp.status;
+    throw e;
   }
-  return { canal: canalReal };
+  return { canal };
+}
+
+async function enviarPorTwilio({ para, canal, texto, codigo }) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) throw erro('SEM_PROVEDOR', 'Twilio sem TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN.');
+
+  const configurado = {
+    whatsapp: !!process.env.TWILIO_WHATSAPP_FROM,
+    sms: !!process.env.TWILIO_SMS_FROM,
+  };
+  // o canal pedido vai primeiro; o outro só entra se estiver configurado
+  const ordem = (canal === 'sms' ? ['sms', 'whatsapp'] : ['whatsapp', 'sms']).filter((c) => configurado[c]);
+  if (ordem.length === 0) {
+    throw erro('SEM_PROVEDOR', 'Nenhum remetente configurado (TWILIO_WHATSAPP_FROM / TWILIO_SMS_FROM).');
+  }
+
+  let ultimoErro;
+  for (const c of ordem) {
+    try {
+      return await enviarUmCanal({ canal: c, para, texto, codigo, sid, token });
+    } catch (err) {
+      ultimoErro = err;
+      if (err.code !== 'FALHA_ENVIO' && err.name !== 'TimeoutError' && err.name !== 'TypeError') throw err;
+      // WhatsApp recusou/caiu: tenta o próximo canal configurado (se houver)
+    }
+  }
+  throw ultimoErro.code ? ultimoErro : erro('FALHA_ENVIO', 'O provedor não respondeu.');
 }
 
 // Devolve { canal } com o canal REALMENTE usado. Lança erro com .code:
@@ -82,7 +120,7 @@ async function enviarCodigo({ telefone, canal, codigo, validadeMinutos }) {
   const texto = `VitalSync: seu código de verificação é ${codigo}. Vale por ${validadeMinutos} minutos. Não compartilhe com ninguém.`;
   const provedor = provedorAtivo();
 
-  if (provedor === 'twilio') return enviarPorTwilio({ para, canal, texto });
+  if (provedor === 'twilio') return enviarPorTwilio({ para, canal, texto, codigo });
 
   if (provedor === 'console' && process.env.NODE_ENV !== 'production') {
     console.log(`[OTP] ${canal} para ${para}: ${codigo}`);

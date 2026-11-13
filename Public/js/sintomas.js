@@ -104,13 +104,20 @@ function mostrarResultado(level) {
   resultPane.classList.add('active');
 }
 
-function mostrarErro(mensagem, pedirLogin) {
+// destino (opcional): leva o paciente para outra página em vez de "tentar de novo"
+function mostrarErro(mensagem, pedirLogin, destino, titulo) {
+  document.getElementById('errorTitle').textContent = titulo || 'Não foi possível registrar';
   document.getElementById('errorText').textContent = mensagem;
   document.getElementById('errorLogin').style.display = pedirLogin ? 'block' : 'none';
-  document.getElementById('errorRetry').style.display = pedirLogin ? 'none' : 'block';
+  const voltar = document.getElementById('errorRetry');
+  voltar.href = destino ? destino.href : 'sintomas.html';
+  voltar.textContent = destino ? destino.texto : 'Tentar de novo';
+  voltar.style.display = pedirLogin ? 'none' : 'block';
   analyzingPane.classList.remove('active');
   errorPane.classList.add('active');
 }
+
+const JA_TEM_SENHA = { href: 'fila.html', texto: 'Ver minha senha' };
 
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -140,6 +147,12 @@ async function enviarParaApi(dados) {
     VitalSyncStore.setMinhaSenhaId(String(r.fila.id));
     mostrarResultado(r.prioridade_calculada); // a prioridade que vale é a do servidor
   } catch (err) {
+    // 409: já existe uma senha ativa deste paciente (só pode haver uma). O servidor diz qual é.
+    if (err.status === 409 && err.dados && err.dados.fila) {
+      VitalSyncStore.setMinhaSenhaId(String(err.dados.fila.id));
+      mostrarErro(err.message, false, JA_TEM_SENHA, 'Você já está na fila');
+      return;
+    }
     mostrarErro(err.message || 'Não foi possível registrar sua avaliação. Tente novamente.', false);
   }
 }
@@ -214,4 +227,28 @@ form.addEventListener('submit', (e) => {
   document.getElementById('avisosField').hidden = false;
   const digitos = String(p.telefone || '').replace(/\D/g, '');
   if (digitos.length >= 4) document.getElementById('avisosTel').textContent = `(telefone terminado em ${digitos.slice(-4)})`;
+})();
+
+// ---------- já tem uma senha ativa? avisa ANTES de preencher o formulário (só com o servidor) ----------
+(async function avisarSeJaTemSenha() {
+  if (!FilaAPI.ativo) return;
+  const p = VitalSyncStore.getPacienteAtual();
+  if (!p || !p.paciente_db_id) return;
+  try {
+    // traz do servidor a senha ativa, inclusive se ela foi criada em OUTRO aparelho
+    if (VitalSyncStore.getPacienteToken()) await FilaAPI.carregarMeusAtendimentos();
+  } catch (e) { /* segue com o que este aparelho já sabe */ }
+
+  const id = FilaAPI.getMinhaSenhaId();
+  if (!id) return;
+  const minha = await FilaAPI.consultarSenha(id);
+  if (!minha || !['aguardando', 'chamando', 'atendimento'].includes(minha.status)) return;
+
+  form.style.display = 'none';
+  stepsWrap.style.display = 'none';
+  footNote.style.display = 'none';
+  mostrarErro(
+    `Você já tem uma senha ativa (${minha.senha}). Acompanhe por ela ou saia da fila antes de pedir outra.`,
+    false, JA_TEM_SENHA, 'Você já está na fila'
+  );
 })();
